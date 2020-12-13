@@ -1,16 +1,33 @@
 from SimAccount import SimAccount
+from Strategy import Strategy
 from NNInputDataGenerator import NNInputDataGenerator
+from SystemFlg import SystemFlg
 from NN import NN
 
 
+'''
+毎分MarketDataでohlc / indexが更新されたことを確認して、SimAccountのpl / holding periodなどを更新する。
+SimAccountを更新したらnnの計算を行い、strategyで必要なアクションを計算しSimAccountのorderを更新する。
+'''
 class Sim:
     def __init__(self):
-        pass
+        print('started Sim.')
+        SimAccount.initialize()
+        self.nn = NN()
+        self.nn_input_data_generator = NNInputDataGenerator()
+        self.gene = Gene()
+        self.gene.readWeigth('./Model/best_weight.csv')
+        self.pred = -1
+        self.pred_log = []
+        
 
-
-    #def ohlc_update(self, ):
-
-
+    def __sim_thread(self):
+        while SystemFlg.get_system_flg():
+            #毎分00秒を過ぎた時点で0.1秒間隔でMarketDataの更新を確認する。
+            while True:
+                MarketData.
+                
+            time.sleep(1)
 
 
     def sim_ga_limit(self, from_ind, to_ind, max_amount, chromo, ac):

@@ -35,20 +35,20 @@ class OneMinData:
         return pd.DataFrame({'datetime':self.datetime, 'open':self.open, 'high':self.high, 'low':self.low, 'close':self.close, 'size':self.size})
 
 
+'''
+毎分ohlcを取得してindexを計算する。
+'''
 class MarketData:
     @classmethod
     def initialize_for_bot(cls, term_list):
         cls.__initialize_nn()
-        cls.gene = Gene()
-        cls.gene.readWeigth('./Model/best_weight.csv')
         cls.term_list = term_list
-        cls.sim = Sim()
         t = datetime.datetime.now().timestamp()
         #最大のtermのindexの計算に必要なデータを確保するためのtarget from tを計算してデータを取得
         target_from_t = int(t - (t - (t // 60.0) * 60.0)) - int((60 * cls.term_list[-1] * 2.1))
         df = RestAPI.get_ohlc(1, target_from_t)
         cls.__initialize_ohlc(df)
-        cls.initializa_nn()
+        cls.ohlc_flg = True #Trueの時にSimが最新のohlc / indexデータの取得する。
         th = threading.Thread(target=cls.__ohlc_thread())
         th.start()
 
@@ -68,15 +68,7 @@ class MarketData:
         cls.calc_sma()
         cls.calc_divergence()
         cls.calc_divergence_scaled()
-    
-    @classmethod
-    def __initialize_nn(cls):
-        cls.nn = NN()
-        cls.nn_input_data_generator = NNInputDataGenerator()
-        cls.nn_pred = -1
-        cls.nn_pred_log = []
-        cls.nn_flg = False #nn predが更新されたらTrueにして、
-        cls.lock_nn_data = threading.Lock()
+
     
     @classmethod
     def __calc_nn(cls):
@@ -88,8 +80,12 @@ class MarketData:
             print('nn output=', cls.nn_pred, ':', {0:'no', 1: 'buy', 2:'sell', 3:'cancel'}[cls.nn_pred])
 
 
+    '''
+    Simからのアクセスのみを想定
+    '''
     @classmethod
     def get_latest_ohlc(cls):
+        cls.ohlc_flg = False
         return {'dt':cls.ohlc.datetime[-1], 'open':cls.ohlc.open[-1], 'high':cls.ohlc.high[-1], 'low':cls.ohlc.low[-1], 'close':cls.ohlc.close[-1]}
 
 
@@ -132,6 +128,7 @@ class MarketData:
             cls.calc_sma()
             cls.calc_divergence()
             cls.calc_divergence_scaled()
+            cls.ohlc_flg = True
         else:
             print('No matched datetime found in downloaded ohlc data!')
             print(df_ohlc)
