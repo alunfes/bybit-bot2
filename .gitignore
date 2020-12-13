@@ -1,0 +1,6 @@
+/Data/
+/ignore/
+/Model/
+/__pycache__/
+*.csv
+*.dat

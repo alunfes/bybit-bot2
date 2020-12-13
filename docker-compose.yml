@@ -1,0 +1,14 @@
+version: '3'
+services:
+  python3:
+    restart: always
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    container_name: 'myapp'
+    working_dir: '/usr/app'
+    tty: true
+    ports: 
+      - '8080:80'
+    volumes:
+      - .:/usr/app
