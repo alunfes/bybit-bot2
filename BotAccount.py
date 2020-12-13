@@ -100,9 +100,9 @@ class BotAccount:
                 close = MarketData.get_latest_ohlc()['close']
                 cls.unrealized_pl = (close - self.holding_price) * self.holding_size if self.holding_side == 'buy' else (self.holding_price - close) * self.holding_size
                 self.unrealized_pl_list.append(self.unrealized_pl)
-        else:
-            self.unrealized_pl = 0
-            self.unrealized_pl_list = []
+            else:
+                self.unrealized_pl = 0
+                self.unrealized_pl_list = []
 
     @classmethod
     def __order_exec_check_thread(cls):
@@ -110,7 +110,7 @@ class BotAccount:
             order_data = PrivateWSData.get_order_data()
             if order_data != None:
                 for d in order_data:
-
+                    pass
             times.sleep(0.5)
 
     @classmethod

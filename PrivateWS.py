@@ -1,5 +1,4 @@
 from SystemFlg import SystemFlg
-from Account import Account
 
 import websocket
 import json
@@ -182,7 +181,6 @@ class PrivateWS:
                 d = message['data']
             elif message['topic'] == 'order':
                 for d in message['data']:
-                    #Account.process_execution(d['order_id'], d['leaves_qty'], 0 if d['order_status'] == 'New' else d['exec_qty'], d['last_exec_price'], d['order_type'], d['status'])
                     PrivateWSData.add_order_data(d)
                     #print(d)
             elif message['topic'] == 'position':
@@ -239,7 +237,6 @@ class PrivateWSData:
 
 if __name__ == '__main__':
     SystemFlg.initialize()
-    Account.initialize()
     pws = PrivateWS()
     while True:
         time.sleep(1)

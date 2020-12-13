@@ -4,6 +4,7 @@ from Trade import Trade
 from BotAccount import BotAccount
 from SystemFlg import SystemFlg
 import threading
+import time
 
 '''
 x`
@@ -22,6 +23,10 @@ class Bot():
 
 
     def __bot_thread(self):
+        #
+        time.sleep(1)
 
 
-
+if __name__ == '__main__':
+    while True:
+        time.sleep(0.1)

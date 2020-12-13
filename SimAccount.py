@@ -2,7 +2,6 @@ import time
 import threading
 
 from SystemFlg import SystemFlg
-from MarketData import MarketData
 
 '''
 
@@ -92,38 +91,16 @@ class SimAccount:
             'num_trade':cls.num_trade, 'win_rate':cls.win_rate}
 
 
-
-    @classmethod
-    def __account_thread(cls):
-        while SystemFlg.get_system_flg():
-            #orderがある時に約定、変更確認
-            if cls.order_id != '':
-                th = threading.Thread(target=cls.__order_exec_check_thread())
-                th.start()
-            #holdingがある時に、pl等確認
-            
-            time.sleep(1)
-
-
     @classmethod
     def __calc_holding_pl(cls):
+        '''
         with cls.lock_performance:
             if cls.holding_side != '':
                 close = MarketData.get_latest_ohlc()['close']
                 cls.unrealized_pl = (close - self.holding_price) * self.holding_size if self.holding_side == 'buy' else (self.holding_price - close) * self.holding_size
                 self.unrealized_pl_list.append(self.unrealized_pl)
-        else:
-            self.unrealized_pl = 0
-            self.unrealized_pl_list = []
-
-    @classmethod
-    def __order_exec_check_thread(cls):
-        while cls.order_id != '':
-            order_data = PrivateWSData.get_order_data()
-            if order_data != None:
-                for d in order_data:
-
-            times.sleep(0.5)
-
-    
-
+            else:
+                self.unrealized_pl = 0
+                self.unrealized_pl_list = []
+        '''
+        pass

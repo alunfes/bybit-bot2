@@ -2,7 +2,7 @@
 
 class Strategy:
     @classmethod
-    def ga_limit_strategy(cls, i, nn_output, amount, max_amount, ac:SimAccount):
+    def ga_limit_strategy(cls, i, nn_output, amount, max_amount):
         ad = ActionData()
         pred_side = {0:'no', 1: 'buy', 2:'sell', 3:'cancel'}[nn_output]
         if pred_side == 'no':

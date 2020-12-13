@@ -4,6 +4,15 @@ from NN import NN
 
 
 class Sim:
+    def __init__(self):
+        pass
+
+
+    #def ohlc_update(self, ):
+
+
+
+
     def sim_ga_limit(self, from_ind, to_ind, max_amount, chromo, ac):
         nn = NN()
         strategy = Strategy()

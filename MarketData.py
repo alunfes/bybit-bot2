@@ -6,6 +6,8 @@ from SystemFlg import SystemFlg
 from RestAPI import RestAPI
 from Sim import Sim
 from Gene import Gene
+from NNInputDataGenerator import NNInputDataGenerator
+from NN import NN
 
 class OneMinData:
     def initialize(self):
@@ -36,6 +38,7 @@ class OneMinData:
 class MarketData:
     @classmethod
     def initialize_for_bot(cls, term_list):
+        cls.__initialize_nn()
         cls.gene = Gene()
         cls.gene.readWeigth('./Model/best_weight.csv')
         cls.term_list = term_list
@@ -44,7 +47,14 @@ class MarketData:
         #最大のtermのindexの計算に必要なデータを確保するためのtarget from tを計算してデータを取得
         target_from_t = int(t - (t - (t // 60.0) * 60.0)) - int((60 * cls.term_list[-1] * 2.1))
         df = RestAPI.get_ohlc(1, target_from_t)
-        #dfをOneMinDataに変換
+        cls.__initialize_ohlc(df)
+        cls.initializa_nn()
+        th = threading.Thread(target=cls.__ohlc_thread())
+        th.start()
+
+
+    @classmethod
+    def __initialize_ohlc(cls, df):
         cls.ohlc = OneMinData()
         cls.ohlc.initialize()
         cls.ohlc.datetime = list(df['datetime'])
@@ -58,10 +68,26 @@ class MarketData:
         cls.calc_sma()
         cls.calc_divergence()
         cls.calc_divergence_scaled()
-        th = threading.Thread(target=cls.__ohlc_thread())
-        th.start()
-
     
+    @classmethod
+    def __initialize_nn(cls):
+        cls.nn = NN()
+        cls.nn_input_data_generator = NNInputDataGenerator()
+        cls.nn_pred = -1
+        cls.nn_pred_log = []
+        cls.nn_flg = False #nn predが更新されたらTrueにして、
+        cls.lock_nn_data = threading.Lock()
+    
+    @classmethod
+    def __calc_nn(cls):
+        with cls.lock_nn_data:
+            nn_input = cls.nn_input_data_generator.generate_nn_input_data_limit(cls.ohlc.divergence_scaled.iloc[-1])
+            nn_outputs = cls.nn.calc_nn(nn_input, cls.gene.num_units, cls.gene.weight_gene1, cls.gene.weight_gene2, cls.gene.bias_gene1, cls.gene.bias_gene2, 1)
+            cls.nn_pred = cls.nn.getActivatedUnit(nn_outputs)#{0:'no', 1: 'buy', 2:'sell', 3:'cancel'}[nn_output]
+            cls.nn_pred_log.append(cls.nn_pred)
+            print('nn output=', cls.nn_pred, ':', {0:'no', 1: 'buy', 2:'sell', 3:'cancel'}[cls.nn_pred])
+
+
     @classmethod
     def get_latest_ohlc(cls):
         return {'dt':cls.ohlc.datetime[-1], 'open':cls.ohlc.open[-1], 'high':cls.ohlc.high[-1], 'low':cls.ohlc.low[-1], 'close':cls.ohlc.close[-1]}
@@ -77,8 +103,7 @@ class MarketData:
                 downloaded_df = RestAPI.get_ohlc(1, cls.ohlc.timestamp[-1] - 60)
                 cls.__add_ohlc_data(downloaded_df)
                 print(cls.ohlc.get_df().iloc[-1:])
-                cls.__sim_process()
-                
+                cls.__calc_nn()
                 kijun_timestamp += 60
             else:
                 time.sleep(1)
@@ -112,9 +137,10 @@ class MarketData:
             print(df_ohlc)
 
 
+
     @classmethod
     def __sim_process(cls):
-        #
+        pass
 
 
     @classmethod
