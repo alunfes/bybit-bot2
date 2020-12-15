@@ -66,9 +66,9 @@ class Trade:
             error_message = ''
             try:
                 if type == 'Limit' or type == 'limit':
-                    order_info = cls.bb.createOrder('BTC/USD', 'limit', side, amount, price, {'time_in_force': 'GoodTillCancel'})
+                    order_info = cls.bb.createOrder('BTC/USD', 'limit', side, str(amount), str(price), {'time_in_force': 'GoodTillCancel'})
                 elif type == 'Market' or type == 'market':
-                    order_info = cls.bb.createOrder('BTC/USD', 'market', side, amount, price, {'time_in_force': 'GoodTillCancel'})
+                    order_info = cls.bb.createOrder('BTC/USD', 'market', side, str(amount), str(price), {'time_in_force': 'GoodTillCancel'})
             except Exception as e:
                 error_message = str(e)
                 print('Trade-order error!, ' + str(e))
@@ -102,7 +102,7 @@ class Trade:
             order_data = cls.get_order_byid(order_id)
             if 'user_id' in order_data:
                 try:
-                    order_info = cls.bb.edit_order(order_id,'BTC/USD', order_data['order_type'], order_data['side'], None, new_price, {'time_in_force': 'GoodTillCancel'})
+                    order_info = cls.bb.edit_order(order_id,'BTC/USD', order_data['order_type'], order_data['side'], None, str(new_price), {'time_in_force': 'GoodTillCancel'})
                 except Exception as e:
                     error_message = str(e)
                     print('Trade.update_order_price: Error', e)
@@ -204,9 +204,11 @@ class Trade:
 
 
 if __name__ == '__main__':
+    LineNotification.initialize()
     Trade.initialize()
-    #print(Trade.get_orders())
+    bs = Trade.get_bid_ask()
     bid_ask = Trade.get_bid_ask()
-    oid = Trade.order('buy', bid_ask[0]- 1000, 'limit', 1000)
+    order_data = Trade.order('buy', bid_ask[0]- 1000, 'limit', 1000)
+    print(order_data)
     time.sleep(10)
-    print(Trade.update_order_price(oid, Trade.get_bid_ask()[0]-1100))
+    print(Trade.update_order_price(order_data['info']['order_id'], Trade.get_bid_ask()[0]-1100))

@@ -48,7 +48,8 @@ class MarketData:
         target_from_t = int(t - (t - (t // 60.0) * 60.0)) - int((60 * cls.term_list[-1] * 2.1))
         df = RestAPI.get_ohlc(1, target_from_t)
         cls.__initialize_ohlc(df)
-        cls.ohlc_flg = True #Trueの時にSimが最新のohlc / indexデータの取得する。
+        cls.ohlc_sim_flg = True #Trueの時にSimが最新のohlc / indexデータの取得する。
+        cls.ohlc_bot_flg = True #Trueの時にBotが最新のohlc / indexデータの取得する。
         th = threading.Thread(target=cls.__ohlc_thread())
         th.start()
 
@@ -69,24 +70,21 @@ class MarketData:
         cls.calc_divergence()
         cls.calc_divergence_scaled()
 
-    
-    @classmethod
-    def __calc_nn(cls):
-        with cls.lock_nn_data:
-            nn_input = cls.nn_input_data_generator.generate_nn_input_data_limit(cls.ohlc.divergence_scaled.iloc[-1])
-            nn_outputs = cls.nn.calc_nn(nn_input, cls.gene.num_units, cls.gene.weight_gene1, cls.gene.weight_gene2, cls.gene.bias_gene1, cls.gene.bias_gene2, 1)
-            cls.nn_pred = cls.nn.getActivatedUnit(nn_outputs)#{0:'no', 1: 'buy', 2:'sell', 3:'cancel'}[nn_output]
-            cls.nn_pred_log.append(cls.nn_pred)
-            print('nn output=', cls.nn_pred, ':', {0:'no', 1: 'buy', 2:'sell', 3:'cancel'}[cls.nn_pred])
 
 
     '''
-    Simからのアクセスのみを想定
+    SimとBotから毎分1回ずつアクセスがある。
+    sim_bot_flg = 0 or 1 (0:sim, 1:bot)
     '''
     @classmethod
-    def get_latest_ohlc(cls):
-        cls.ohlc_flg = False
-        return {'dt':cls.ohlc.datetime[-1], 'open':cls.ohlc.open[-1], 'high':cls.ohlc.high[-1], 'low':cls.ohlc.low[-1], 'close':cls.ohlc.close[-1]}
+    def get_latest_ohlc(cls, sim_bot_flg):
+        if sim_bot_flg==0:
+            cls.ohlc_sim_flg = False
+        elif sim_bot_flg==1:
+            cls.ohlc_bot_flg = False
+        else:
+            print('MarketData-get_latest_ohlc: Invalid sim_bot_flg !', sim_bot_flg)
+        return {'dt':cls.ohlc.datetime[-1], 'open':cls.ohlc.open[-1], 'high':cls.ohlc.high[-1], 'low':cls.ohlc.low[-1], 'close':cls.ohlc.close[-1], 'divergence_scaled':cls.ohlc.divergence_scaled.iloc[-1]}
 
 
     @classmethod
@@ -99,7 +97,6 @@ class MarketData:
                 downloaded_df = RestAPI.get_ohlc(1, cls.ohlc.timestamp[-1] - 60)
                 cls.__add_ohlc_data(downloaded_df)
                 print(cls.ohlc.get_df().iloc[-1:])
-                cls.__calc_nn()
                 kijun_timestamp += 60
             else:
                 time.sleep(1)
@@ -128,7 +125,8 @@ class MarketData:
             cls.calc_sma()
             cls.calc_divergence()
             cls.calc_divergence_scaled()
-            cls.ohlc_flg = True
+            cls.ohlc_sim_flg = True
+            cls.ohlc_bot_flg = True
         else:
             print('No matched datetime found in downloaded ohlc data!')
             print(df_ohlc)

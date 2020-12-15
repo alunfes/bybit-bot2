@@ -9,4 +9,4 @@ if __name__ == '__main__':
     while True:
         if d == True:
             print('kita')
-        time.sleep(0.1)
+        time.sleep(1)

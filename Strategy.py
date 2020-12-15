@@ -1,31 +1,39 @@
-
+from SimAccount import SimAccount
+from Trade import Trade
 
 class Strategy:
     @classmethod
-    def ga_limit_strategy(cls, i, nn_output, amount, max_amount):
+    def ga_limit_strategy(cls, nn_output, amount, max_amount):
         ad = ActionData()
         pred_side = {0:'no', 1: 'buy', 2:'sell', 3:'cancel'}[nn_output]
+        order_data = SimAccount.get_order_data()
+        holding_data = SimAccount.get_holding_data()
         if pred_side == 'no':
             pass
         elif pred_side == 'cancel':
-            if ac.getLastSerialNum() > 0:
-                ad.add_action('cancel', '', '', 0, 0, ac.order_serial_list[-1], 'cancel all orders')
+            if order_data['id'] != '':
+                ad.add_action('cancel', '', '', 0, 0, order_data['id'], 'cancel all orders')
         else:
-            if pred_side == ac.getLastOrderSide():
-                if ac.holding_size + ac.getLastOrderSize() < max_amount:
-                    ad.add_action('update amount', pred_side, 'limit', 0, ac.getLastOrderSize() + amount, ac.order_serial_list[-1], 'update order amount')
-                #if (ac.getLastOrderSide() == 'buy' and OneMinMarketData.ohlc.close[i] > ac.getLastOrderPrice()) or ac.getLastOrderSide() == 'sell' and OneMinMarketData.ohlc.close[i] < ac.getLastOrderPrice():
-                if (ac.getLastOrderPrice() != OneMinMarketData.ohlc.close[i]):
-                    ad.add_action('update price', pred_side, 'limit', OneMinMarketData.ohlc.close[i], ac.getLastOrderSize(), ac.order_serial_list[-1], 'update order price')
-            elif pred_side != ac.getLastOrderSide():
-                if ac.getLastOrderSide() != '':
-                    ad.add_action('cancel', '', '', 0, 0, ac.order_serial_list[-1], 'cancel all orders')
-                if (pred_side == ac.holding_side and ac.holding_size + amount > max_amount) == False:
-                    ad.add_action('entry', pred_side, 'limit', OneMinMarketData.ohlc.close[i], amount, -1, 'entry order')
-            elif pred_side == ac.holding_side and ac.holding_size + ac.getLastOrderSize() < max_amount:
-                ad.add_action('entry', pred_side, 'limit', OneMinMarketData.ohlc.close[i], amount, -1, 'entry order')
-            elif pred_side != ac.holding_side and ac.getLastOrderSide() != pred_side:
-                ad.add_action('entry', pred_side, 'limit', OneMinMarketData.ohlc.close[i], min([ac.holding_size + amount, ac.holding_size + max_amount]), -1, 'entry order')
+            if pred_side == order_data['side']:
+                if holding_data['size'] + order_data['size'] < max_amount:
+                    ad.add_action('update amount', pred_side, 'limit', 0, order_data['size'] + amount, order_data['id'], 'update order amount')
+                    print('Strategy: hit at update amount!')
+                if (order_data['side'] == 'buy' and Trade.get_bid_ask[0] != order_data['price']):
+                    ad.add_action('update price', pred_side, 'limit', Trade.get_bid_ask[0], order_data['size'], order_data['id'], 'update order price')
+                elif (order_data['side'] == 'sell' and Trade.get_bid_ask[1] != order_data['price']):
+                    ad.add_action('update price', pred_side, 'limit', Trade.get_bid_ask[1], order_data['size'], order_data['id'], 'update order price')
+            elif pred_side != order_data['side']:
+                if order_data['side'] != '':
+                    ad.add_action('cancel', '', '', 0, 0, order_data['id'], 'cancel all orders')
+                if (pred_side == holding_data['side'] and holding_data['size'] + amount > max_amount) == False:
+                    bid_ask = Trade.get_bid_ask()
+                    ad.add_action('entry', pred_side, 'limit', bid_ask[0] if pred_side == 'buy' else bid_ask[1], amount, -1, 'entry order')
+            elif pred_side == holding_data['side'] and holding_data['size'] + order_data['size'] < max_amount:
+                bid_ask = Trade.get_bid_ask()
+                ad.add_action('entry', pred_side, 'limit', bid_ask[0] if pred_side == 'buy' else bid_ask[1], amount, -1, 'entry order')
+            elif pred_side != holding_data['side'] and order_data['side'] != pred_side:
+                bid_ask = Trade.get_bid_ask()
+                ad.add_action('entry', pred_side, 'limit', bid_ask[0] if pred_side == 'buy' else bid_ask[1], min([holding_data['size'] + amount, holding_data['side'] + max_amount]), -1, 'entry order')
         return ad
 
 
