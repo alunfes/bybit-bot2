@@ -1,6 +1,11 @@
+import threading
+import time
+
 from SimAccount import SimAccount
 from Strategy import Strategy, ActionData
 from NNInputDataGenerator import NNInputDataGenerator
+from MarketData import MarketData
+from Gene import Gene
 from SystemFlg import SystemFlg
 from NN import NN
 
@@ -28,31 +33,28 @@ class Sim:
         self.max_amount = 1
         self.nn = NN()
         self.nn_input_data_generator = NNInputDataGenerator()
-        self.gene = Gene()
-        self.gene.readWeigth('./Model/best_weight.csv')
+        self.gene = Gene('./Model/best_weight.csv')
         self.pred = -1
         self.pred_log = []
+        th = threading.Thread(target=self.__sim_thread)
+        th.start()
+
         
 
     def __sim_thread(self):
         while SystemFlg.get_system_flg():
             if MarketData.ohlc_sim_flg == True:
                 #毎分MarketDataでohlc / indexが更新されたことを確認
-                ohlc = MarketData.get_latest_ohlc() #{'dt', 'open', 'high', 'low', 'close', 'divergence_scaled'}
-                nn_input = self.nn_input_data_generator.generate_nn_input_data_limit(ohlc['divergence_scaled'])
-                nn_outputs = self.nn.calc_nn(nn_input, self.gene.num_units, self.gene.weight_gene1, self.gene.weight_gene2, self.gene.bias_gene1, self.gene.bias_gene2, 1)
-                self.pred = self.nn.getActivatedUnit(nn_outputs)#{0:'no', 1: 'buy', 2:'sell', 3:'cancel'}[nn_output]
-                self.pred_log.append(self.pred)
-                print('nn output=', self.pred, ':', {0:'no', 1: 'buy', 2:'sell', 3:'cancel'}[self.pred])
+                ohlc = MarketData.get_latest_ohlc(0) #{'dt', 'open', 'high', 'low', 'close', 'divergence_scaled'}
                 #SimAccountのpl / holding periodなどを更新
                 SimAccount.ohlc_update(self.loop_i, ohlc)
                 #nnの計算を行い、strategyで必要なアクションを計算
                 self.__nn_process(ohlc['divergence_scaled'])
                 #SimAccountのorderを更新する。
-                actions = Strategy.ga_limit_strategy(self.pred, 1, self.max_amount)
-                self.__sim_action_process(actions)
+                actions = Strategy.sim_ga_limit_strategy(self.pred, 1, self.max_amount, ohlc)
+                self.__sim_action_process(self.loop_i, actions, ohlc)
                 self.loop_i += 1
-            time.sleep(0.5)
+            time.sleep(1)
 
 
     def __nn_process(self, divergence_scaled):
@@ -60,21 +62,17 @@ class Sim:
         nn_outputs = self.nn.calc_nn(nn_input, self.gene.num_units, self.gene.weight_gene1, self.gene.weight_gene2, self.gene.bias_gene1, self.gene.bias_gene2, 1)
         self.pred = self.nn.getActivatedUnit(nn_outputs)#{0:'no', 1: 'buy', 2:'sell', 3:'cancel'}[nn_output]
         self.pred_log.append(self.pred)
-        print('nn output=', self.pred, ':', {0:'no', 1: 'buy', 2:'sell', 3:'cancel'}[self.pred])
+        print('Sim: nn output=', self.pred, ':', {0:'no', 1: 'buy', 2:'sell', 3:'cancel'}[self.pred])
 
 
-
-    def __sim_action_process(self, actions:ActionData):
+    def __sim_action_process(self, i, actions:ActionData, ohlc):
         for j in range(len(actions.action)):
             if actions.action[j] == 'entry':
-                ac.entry_order(actions.order_type[j], actions.order_side[j], actions.order_size[j], actions.order_price[j], i, OneMinMarketData.ohlc.dt[i], actions.order_message[j])
+                SimAccount.entry_order(i, actions.order_side[j], actions.order_price[j], actions.order_size[j], ohlc['dt'], actions.order_type[j], actions.order_message[j])
             elif actions.action[j] == 'cancel':
-                ac.cancel_all_order(i, OneMinMarketData.ohlc.dt[i])
+                SimAccount.cancel_all_order()
             elif actions.action[j] == 'update amount':
-                ac.update_order_amount(actions.order_size[j], actions.order_serial_num[j], i, OneMinMarketData.ohlc.dt[i])
+                print('update amount is not programmed !')
+                pass
             elif actions.action[j] == 'update price':
-                ac.update_order_price(actions.order_price[j], actions.order_serial_num[j], i, OneMinMarketData.ohlc.dt[i])
-
-
-if __name__ == '__main__':
-    pass
+                SimAccount.update_order_price(actions.order_price[j])

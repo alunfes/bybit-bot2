@@ -1,10 +1,10 @@
 import datetime
 import time
 import pandas as pd
+import threading
 from sklearn.preprocessing import MinMaxScaler
 from SystemFlg import SystemFlg
 from RestAPI import RestAPI
-from Sim import Sim
 from Gene import Gene
 from NNInputDataGenerator import NNInputDataGenerator
 from NN import NN
@@ -41,16 +41,16 @@ class OneMinData:
 class MarketData:
     @classmethod
     def initialize_for_bot(cls, term_list):
-        cls.__initialize_nn()
+        print('started MarketData')
         cls.term_list = term_list
         t = datetime.datetime.now().timestamp()
         #最大のtermのindexの計算に必要なデータを確保するためのtarget from tを計算してデータを取得
         target_from_t = int(t - (t - (t // 60.0) * 60.0)) - int((60 * cls.term_list[-1] * 2.1))
         df = RestAPI.get_ohlc(1, target_from_t)
         cls.__initialize_ohlc(df)
-        cls.ohlc_sim_flg = True #Trueの時にSimが最新のohlc / indexデータの取得する。
-        cls.ohlc_bot_flg = True #Trueの時にBotが最新のohlc / indexデータの取得する。
-        th = threading.Thread(target=cls.__ohlc_thread())
+        cls.ohlc_sim_flg = False #Trueの時にSimが最新のohlc / indexデータの取得する。
+        cls.ohlc_bot_flg = False #Trueの時にBotが最新のohlc / indexデータの取得する。
+        th = threading.Thread(target=cls.__ohlc_thread)
         th.start()
 
 
