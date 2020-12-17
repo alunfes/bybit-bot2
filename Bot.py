@@ -8,6 +8,7 @@ from SystemFlg import SystemFlg
 from NN import NN
 from NNInputDataGenerator import NNInputDataGenerator
 from Gene import Gene
+from LogMaster import LogMaster
 
 
 '''
@@ -17,14 +18,17 @@ calc strategy
 place orders
 '''
 class Bot():
-    def __init__(self):
+    def __init__(self, order_size):
         print('started bot')
         BotAccount.initialize()
-        self.nn = NN()
-        self.nn_input_data_generator = NNInputDataGenerator()
-        self.gene = Gene('./Model/best_weight.csv')
-        self.pred = -1
-        self.pred_log = []
+        self.__nn = NN()
+        self.__nn_input_data_generator = NNInputDataGenerator()
+        self.__gene = Gene('./Model/best_weight.csv')
+        self.__pred = -1
+        self.__pred_log = []
+        self.__bot_started_time = 0
+        self.__bot_elapsed_time = 0
+        self.__order_size = order_size
         th = threading.Thread(target=self.__bot_thread)
         th.start()
         
@@ -33,7 +37,7 @@ class Bot():
     def __bot_thread(self):
         while SystemFlg.get_system_flg():
             if MarketData.ohlc_bot_flg == True:
-                ohlc = MarketData.get_latest_ohlc()
+                ohlc = MarketData.get_latest_ohlc(1)
                 self.__nn_process(ohlc['divergence_scaled'])
                 
 
@@ -44,7 +48,7 @@ class Bot():
         nn_outputs = self.nn.calc_nn(nn_input, self.gene.num_units, self.gene.weight_gene1, self.gene.weight_gene2, self.gene.bias_gene1, self.gene.bias_gene2, 1)
         self.pred = self.nn.getActivatedUnit(nn_outputs)#{0:'no', 1: 'buy', 2:'sell', 3:'cancel'}[nn_output]
         self.pred_log.append(self.pred)
-        print('Bot: nn output=', self.pred, ':', {0:'no', 1: 'buy', 2:'sell', 3:'cancel'}[self.pred])
+        #print('Bot: nn output=', self.pred, ':', {0:'no', 1: 'buy', 2:'sell', 3:'cancel'}[self.pred])
 
 
 

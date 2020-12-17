@@ -2,6 +2,7 @@ import datetime
 import time
 import pandas as pd
 import threading
+import warnings
 from sklearn.preprocessing import MinMaxScaler
 from SystemFlg import SystemFlg
 from RestAPI import RestAPI
@@ -96,7 +97,7 @@ class MarketData:
             if kijun_timestamp + 1 <= datetime.datetime.now().timestamp():
                 downloaded_df = RestAPI.get_ohlc(1, cls.ohlc.timestamp[-1] - 60)
                 cls.__add_ohlc_data(downloaded_df)
-                print(cls.ohlc.get_df().iloc[-1:])
+                #print(cls.ohlc.get_df().iloc[-1:])
                 kijun_timestamp += 60
             else:
                 time.sleep(1)
@@ -173,10 +174,12 @@ class MarketData:
 
     @classmethod
     def calc_divergence_scaled(cls):
-        df_divergence = pd.DataFrame(MarketData.ohlc.divergence)
-        min_max_scaler = MinMaxScaler()
-        x_scaled = min_max_scaler.fit_transform(df_divergence.T)
-        cls.ohlc.divergence_scaled = pd.DataFrame(x_scaled).T
+        with warnings.catch_warnings():
+            warnings.filterwarnings('ignore', r'All-NaN (slice|axis) encountered')
+            df_divergence = pd.DataFrame(MarketData.ohlc.divergence)
+            min_max_scaler = MinMaxScaler()
+            x_scaled = min_max_scaler.fit_transform(df_divergence.T)
+            cls.ohlc.divergence_scaled = pd.DataFrame(x_scaled).T
 
             
     @classmethod

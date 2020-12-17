@@ -5,6 +5,7 @@ from Trade import Trade
 from MarketData import MarketData
 from Bot import Bot
 from Sim import Sim
+from LogMaster import LogMaster
 
 
 class MasterThread:
@@ -12,6 +13,7 @@ class MasterThread:
         SystemFlg.initialize()
         LineNotification.initialize()
         Trade.initialize()
+        LogMaster.initialize()
         term_list = list(range(100, 1000, 100))
         MarketData.initialize_for_bot(term_list)
         #self.bot = Bot()

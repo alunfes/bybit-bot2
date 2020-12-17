@@ -1,6 +1,7 @@
 from Trade import Trade
 from SimAccount import SimAccount
 
+
 class Strategy:
     @classmethod
     def bot_ga_limit_strategy(self, nn_output, amount, max_amount):
@@ -53,7 +54,7 @@ class Strategy:
                 if holding_data['size'] + SimAccount.getLastOrderSize() < max_amount:
                     ad.add_action('update amount', pred_side, 'limit', 0, SimAccount.getLastOrderSize() + amount, SimAccount.getLastSerialNum(), 'update order amount')
                     print('Strategy: hit at update amount!')
-                if (order_data[-1]['price'] != ohlc['close']):
+                if (SimAccount.getLastOrderPrice() != ohlc['close']):
                     ad.add_action('update price', pred_side, 'limit', ohlc['close'], SimAccount.getLastOrderSize(), SimAccount.getLastSerialNum(), 'update order price')
             elif pred_side != SimAccount.getLastOrderSide():
                 if SimAccount.getLastOrderSide() != '':

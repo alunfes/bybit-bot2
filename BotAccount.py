@@ -9,6 +9,7 @@ from MarketData import MarketData
 
 '''
 ・Botからのorder idを受けて、それをprivate wsとTradeのデータで確認し、約定処理等行う。
+・
 '''
 class BotAccount:
     @classmethod
@@ -16,39 +17,64 @@ class BotAccount:
         pws = PrivateWS()
         cls.__initialize_order_data()
         cls.__initialize_holding_data()
+        cls.__initialize_performance_data()
+        cls.__initialize_trade_data()
         th = threading.Thread(target=cls.__account_thread())
         th.start()
 
 
     @classmethod
     def __initialize_order_data(cls):
-        cls.lock_order = threading.Lock()
-        cls.order_id = ''
-        cls.order_side = ''
-        cls.order_price = 0
-        cls.order_size = 0
-        cls.order_leaves_qty = 0
-        cls.order_cum_exec_fee = 0
-        cls.order_type = ''
-        cls.order_dt = ''
-        cls.order_status = '' #
+        cls.__lock_order = threading.Lock()
+        cls.order_id = []
+        cls.order_side = {}
+        cls.order_price = {}
+        cls.order_size = {}
+        cls.order_leaves_qty = {}
+        cls.order_type = {}
+        cls.order_dt = {}
+        cls.order_status = {} #
 
     @classmethod
     def __initialize_holding_data(cls):
-        cls.lock_holding = threading.Lock()
+        cls.__lock_holding = threading.Lock()
         cls.holding_side = ''
         cls.holding_size = 0
         cls.holding_price = 0
         cls.holding_dt = ''
         cls.holding_period = 0
 
+
+    @classmethod
+    def __initialize_performance_data(cls):
+        cls.__lock_performance = threading.Lock()
+        cls.total_pl = 0
+        cls.total_pl_list = []
+        cls.realized_pl = 0
+        cls.unrealized_pl = 0
+        cls.total_fee = 0
+        cls.num_trade = 0
+        cls.num_sell = 0
+        cls.num_buy = 0
+        cls.num_win = 0
+        cls.win_rate = 0
+        cls.num_market_order = 0
+        cls.sharp_ratio = 0
+
+
+    @classmethod
+    def __initialize_trade_data(cls):
+        cls.__lock_trade = threading.Lock()
+        cls.trade_log = {} #{i, [trade_log]}
+
+
     @classmethod
     def get_holding_data(cls):
-        with cls.lock_holding:
+        with cls.__lock_holding:
             return {'side':cls.holding_side, 'size':cls.holding_size, 'price':cls.holding_price, 'dt':cls.holding_dt, 'period':cls.holding_period}
 
     @classmethod
-    def update_holding_data(cls, side, size, price, dt, period):
+    def update_holding_data(cls, side, size, leaves_qty, price, dt, period):
         with cls.lock_holding:
             cls.holding_side = side
             cls.holding_size = size
@@ -79,6 +105,23 @@ class BotAccount:
             return {'total_pl':cls.total_pl, 'realized_pl':cls.realized_pl, 'unrealized_pl':cls.unrealized_pl, 'total_pl_list':cls.total_pl_list,
             'num_trade':cls.num_trade, 'win_rate':cls.win_rate}
 
+    @classmethod
+    def add_order(cls, order_id, side, price, otype):
+        with cls.__lock_order:
+            cls.order_id.append(order_id)
+            cls.order_side[order_id] = side
+            cls.order_price[order_id] = price
+            cls.order_size[order_id] = size
+            cls.order_leaves_qty[order_id] = leaves_qty
+            cls.order_type[order_id] = otype
+            cls.order_dt[order_id] = datetime.datetime.now()
+            cls.order_status[order_id] = 'New'
+            if leaves_qty != size:
+                print('Bot: New entry order is already partially executed!')
+
+    @classmethod
+    def cancel_order(cls, order_id, leaves_qty):
+        
 
 
     @classmethod
@@ -113,10 +156,5 @@ class BotAccount:
                     pass
             times.sleep(0.5)
 
-    @classmethod
-    def add_order(cls, order_id):
-        with cls.lock_order:
-            if cls.id != '':
-                print('Order is alredy exist !')
-            cls.order_id = order_id
+    
 

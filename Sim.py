@@ -8,6 +8,7 @@ from MarketData import MarketData
 from Gene import Gene
 from SystemFlg import SystemFlg
 from NN import NN
+from LogMaster import LogMaster
 
 
 '''
@@ -26,7 +27,7 @@ SimAccountのpl / holding periodなどを更新する。
 SimAccountを更新したらnnの計算を行い、strategyで必要なアクションを計算しSimAccountのorderを更新する。
 '''
 class Sim:
-    def __init__(self):
+    def __init__(self, bool_display):
         print('started Sim.')
         SimAccount.initialize()
         self.loop_i = 0
@@ -36,6 +37,7 @@ class Sim:
         self.gene = Gene('./Model/best_weight.csv')
         self.pred = -1
         self.pred_log = []
+        self.__bool_display = bool_display #True=display log
         th = threading.Thread(target=self.__sim_thread)
         th.start()
 
@@ -53,6 +55,30 @@ class Sim:
                 #SimAccountのorderを更新する。
                 actions = Strategy.sim_ga_limit_strategy(self.pred, 1, self.max_amount, ohlc)
                 self.__sim_action_process(self.loop_i, actions, ohlc)
+                #Log
+                LogMaster.add_sim_holding_log(ohlc['dt'], SimAccount.get_holding_data())
+                LogMaster.add_sim_order_log(ohlc['dt'], SimAccount.get_order_data())
+                LogMaster.add_sim_performance_log(ohlc['dt'], SimAccount.get_performance_data())
+                LogMaster.add_sim_trade_log(ohlc['dt'], SimAccount.get_latest_trade_log())
+                #Display
+                if self.__bool_display:
+                    print('')
+                    print('**************************************************************************************************')
+                    print('i=',self.loop_i)
+                    del ohlc['divergence_scaled']
+                    print(ohlc)
+                    print('nn ouput=', {0:'no', 1: 'buy', 2:'sell', 3:'cancel'}[self.pred_log[-1]])
+                    performance_log = SimAccount.get_performance_data()
+                    del performance_log['total_pl_list']
+                    print('-----Performance Data-----')
+                    print(performance_log)
+                    print('-----Holding Data-----')
+                    print(SimAccount.get_holding_data())
+                    print('-----Order Data-----')
+                    print(SimAccount.get_order_data())
+                    print('-----Trade Log-----')
+                    print(SimAccount.get_latest_trade_log())
+                    print('**************************************************************************************************')
                 self.loop_i += 1
             time.sleep(1)
 
@@ -62,7 +88,7 @@ class Sim:
         nn_outputs = self.nn.calc_nn(nn_input, self.gene.num_units, self.gene.weight_gene1, self.gene.weight_gene2, self.gene.bias_gene1, self.gene.bias_gene2, 1)
         self.pred = self.nn.getActivatedUnit(nn_outputs)#{0:'no', 1: 'buy', 2:'sell', 3:'cancel'}[nn_output]
         self.pred_log.append(self.pred)
-        print('Sim: nn output=', self.pred, ':', {0:'no', 1: 'buy', 2:'sell', 3:'cancel'}[self.pred])
+        #print('Sim: nn output=', self.pred, ':', {0:'no', 1: 'buy', 2:'sell', 3:'cancel'}[self.pred])
 
 
     def __sim_action_process(self, i, actions:ActionData, ohlc):
@@ -70,9 +96,9 @@ class Sim:
             if actions.action[j] == 'entry':
                 SimAccount.entry_order(i, actions.order_side[j], actions.order_price[j], actions.order_size[j], ohlc['dt'], actions.order_type[j], actions.order_message[j])
             elif actions.action[j] == 'cancel':
-                SimAccount.cancel_all_order()
+                SimAccount.cancel_all_order(i)
             elif actions.action[j] == 'update amount':
                 print('update amount is not programmed !')
                 pass
             elif actions.action[j] == 'update price':
-                SimAccount.update_order_price(actions.order_price[j])
+                SimAccount.update_order_price(i, actions.order_price[j])

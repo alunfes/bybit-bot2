@@ -16,6 +16,7 @@ class SimAccount:
         cls.__initialize_order_data()
         cls.__initialize_holding_data()
         cls.__initialize_performance_data()
+        cls.__initialize_trade_data()
 
 
     @classmethod
@@ -57,13 +58,20 @@ class SimAccount:
         cls.num_market_order = 0
         cls.sharp_ratio = 0
 
+    @classmethod
+    def __initialize_trade_data(cls):
+        cls.lock_trade = threading.Lock()
+        cls.trade_log = {} #{i, [trade_log]}
+
+
+
     '''
     should be called only by Sim when ohlc is updated
     '''
     @classmethod
     def ohlc_update(cls, i, ohlc): #ohlc = {'dt', 'open', 'high', 'low', 'close', 'divergence_scaled'}
         #check & process execution
-        cls.__check_cancel()
+        cls.__check_cancel(i)
         cls.__check_execution(i, ohlc['open'], ohlc['high'], ohlc['low'])
         #update pl / holding period
         holding_data = cls.get_holding_data()
@@ -80,9 +88,10 @@ class SimAccount:
             cls.total_pl_list.append(cls.total_pl)
             if cls.num_trade > 0:
                 cls.win_rate = round(float(cls.num_win) / float(cls.num_trade), 4)
-        print('SimAccount: ', 'total_pl=', cls.total_pl, ', num trade=', cls.num_trade, ', win rate=', cls.win_rate)
-        print('Sim Holding Data: ', cls.get_holding_data())
-        print('Sim Order Data: ', cls.get_order_data())
+        cls.__add_trade_log(i,'')
+        #print('SimAccount: ', 'total_pl=', cls.total_pl, ', num trade=', cls.num_trade, ', win rate=', cls.win_rate)
+        #print('Sim Holding Data: ', cls.get_holding_data())
+        #print('Sim Order Data: ', cls.get_order_data())
 
     
     @classmethod
@@ -101,7 +110,33 @@ class SimAccount:
                 cls.order_serial_num += 1
             else:
                 print('SimAccount-entry_order: Invalid order type !', otype)
-                
+                cls.__add_trade_log(i, 'Entry '+side + ' @ '+str(price)+' x ' +str(size))
+
+    @classmethod
+    def __add_trade_log(cls, i, log_data):
+        with cls.lock_trade:
+            if i not in cls.trade_log:
+                cls.trade_log[i] = []
+                cls.trade_log[i].append(log_data)
+            else:
+                cls.trade_log[i].append(log_data)
+
+
+    @classmethod
+    def get_all_trade_log(cls):
+        with cls.lock_trade:
+            return cls.trade_log
+
+
+    @classmethod
+    def get_latest_trade_log(cls):
+        with cls.lock_trade:
+            if len(cls.trade_log) > 0:
+                target_key = max(list(cls.trade_log.keys()))
+                return cls.trade_log[target_key]
+            else:
+                return []
+
 
     @classmethod
     def get_order_data(cls):
@@ -149,26 +184,30 @@ class SimAccount:
 
 
     @classmethod
-    def update_order_price(cls, oid, update_price):
+    def update_order_price(cls, i, oid, update_price):
         with cls.lock_order:
             if cls.order_side[oid] == 'buy' and cls.order_price[oid] > update_price:
                 print('buy price update issue: ', cls.order_price[oid], ' -> ', update_price)
+                cls.__add_trade_log(i, 'buy price update issue: '+ str(cls.order_price[oid]) + ' -> ' + str(update_price))
             if cls.order_side[oid] == 'sell' and cls.order_price[oid] < update_price:
                 print('sell price update issue: ', cls.order_price[oid], ' -> ', update_price)
+                cls.__add_trade_log(i, 'sell price update issue: '+ str(cls.order_price[oid]) + ' -> ' + str(update_price))
             if update_price > 0 and cls.order_side[oid] != '':
                 cls.order_price[oid] = update_price
+                cls.__add_trade_log(i, 'Updated order price: '+ str(cls.order_price[oid]) + ' -> ' + str(update_price))
 
     @classmethod
-    def cancel_order(cls, oid):
+    def cancel_order(cls, i, oid):
         if cls.order_side[oid] != '':
             cls.order_cancel[oid] = True
+            cls.__add_trade_log(i, 'Cancelling order-'+str(oid)+': '+cls.order_side[oid]+' @ '+str(cls.order_price[oid]))
         else:
             print('SimAccount-cancel_order: order is not exist !')
 
     @classmethod
-    def cancel_all_order(cls):
+    def cancel_all_order(cls, i):
         for oid in cls.order_serial_list:
-            cls.cancel_order(oid)
+            cls.cancel_order(i, oid)
 
     @classmethod
     def get_holding_data(cls):
@@ -188,7 +227,7 @@ class SimAccount:
     @classmethod
     def get_performance_data(cls):
         with cls.lock_performance:
-            return {'total_pl':cls.total_pl, 'realized_pl':cls.realized_pl, 'unrealized_pl':cls.unrealized_pl, 'total_pl_list':cls.total_pl_list,
+            return {'total_pl':cls.total_pl, 'realized_pl':cls.realized_pl, 'unrealized_pl':cls.unrealized_pl, 'total_fee':cls.total_fee, 'total_pl_list':cls.total_pl_list,
             'num_trade':cls.num_trade, 'win_rate':cls.win_rate}
 
 
@@ -203,10 +242,12 @@ class SimAccount:
             pass
         
     @classmethod
-    def __check_cancel(cls):
+    def __check_cancel(cls, i):
         ks = copy.copy(cls.order_serial_list)
         for k in ks:
             if cls.order_cancel[k]==True:
+                #print('Order Cancelled-', k, ': ', cls.order_side[k], ' @ ', cls.order_price[k])
+                cls.__add_trade_log(i, 'Order Cancelled-'+str(k)+': '+str(cls.order_side[k])+' @ '+str(cls.order_price[k]))
                 cls.__del_order(k)
 
 
@@ -240,23 +281,38 @@ class SimAccount:
             else:
                 pass
 
+
+
     @classmethod
     def __process_execution(cls, exec_price, i, k):
         cls.__calc_fee(cls.order_size[k], exec_price, 'maker' if cls.order_type[k] == 'limit' else 'taker')
         if cls.holding_side == '':
             cls.__update_holding(cls.order_side[k], exec_price, cls.order_size[k], i, 0) #side, price, size, i, period
+            #print('Sim New Entry: ', cls.order_side[k] + ' @', exec_price, ' x ', cls.order_size[k])
+            cls.__add_trade_log(i, 'Executed New Entry: '+cls.order_side[k] + ' @'+ str(exec_price)+ ' x '+str(cls.order_size[k]))
         elif cls.holding_side == cls.order_side[k]:
             ave_price = round(((cls.holding_price * cls.holding_size) + (exec_price * cls.order_size[k])) / (cls.order_size[k] + cls.holding_size))  # averaged holding price
             cls.__update_holding(cls.holding_side, ave_price, cls.order_size[k] + cls.holding_size, i)
+            #print('Sim Additional Entry: ', cls.order_side[k] + ' @', exec_price, ' x ', cls.order_size[k])
+            cls.__add_trade_log(i, 'Executed Additional Entry: '+cls.order_side[k] + ' @'+str(exec_price)+ ' x '+str(cls.order_size[k]))
         elif cls.holding_size > cls.order_size[k]:
             cls.__calc_executed_pl(exec_price, cls.order_size[k], i)
             cls.__update_holding(cls.holding_side, cls.holding_price, cls.holding_size - cls.order_size[k], i)
+            #print('Sim Partial Exit: ', cls.order_side[k] + ' @', exec_price, ' x ', cls.order_size[k])
+            cls.__add_trade_log(i, 'Executed Partial Exit: '+cls.order_side[k] + ' @'+str(exec_price)+ ' x '+str(cls.order_size[k]))
         elif cls.holding_size == cls.order_size[k]:
             cls.__calc_executed_pl(exec_price, cls.order_size[k], i)
             cls.__initialize_holding_data()
+            #print('Sim All Exit: ', cls.order_side[k] + ' @', exec_price, ' x ', cls.order_size[k])
+            cls.__add_trade_log(i, 'Executed All Exit: '+cls.order_side[k] + ' @'+str(exec_price)+ ' x '+str(cls.order_size[k]))
         elif cls.holding_size < cls.order_size[k]:
             cls.__calc_executed_pl(exec_price, cls.holding_size, i)
             cls.__update_holding(cls.order_side[k], exec_price, cls.order_size[k] - cls.holding_size, i)
+            #print('Sim Opposite Side Entry: ', cls.order_side[k] + ' @', exec_price, ' x ', cls.order_size[k])
+            cls.__add_trade_log(i, 'Executed Opposide Side Entry: '+cls.order_side[k] + ' @'+str(exec_price)+ ' x '+str(cls.order_size[k]))
+        else:
+            #print('SimAccount-process_execution: Match with no conditions !')
+            cls.__add_trade_log(i, 'SimAccount-process_execution: Match with no conditions !: '+cls.order_side[k] + ' @'+str(exec_price)+ ' x '+str(cls.order_size[k]))
 
 
     @classmethod
