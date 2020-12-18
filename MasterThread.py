@@ -17,7 +17,7 @@ class MasterThread:
         term_list = list(range(100, 1000, 100))
         MarketData.initialize_for_bot(term_list)
         #self.bot = Bot()
-        self.sim = Sim()
+        self.sim = Sim(True)
 
 
 if __name__ == '__main__':

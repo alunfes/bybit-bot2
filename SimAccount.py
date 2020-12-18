@@ -227,8 +227,7 @@ class SimAccount:
     @classmethod
     def get_performance_data(cls):
         with cls.lock_performance:
-            return {'total_pl':cls.total_pl, 'realized_pl':cls.realized_pl, 'unrealized_pl':cls.unrealized_pl, 'total_fee':cls.total_fee, 'total_pl_list':cls.total_pl_list,
-            'num_trade':cls.num_trade, 'win_rate':cls.win_rate}
+            return {'total_pl':cls.total_pl, 'realized_pl':cls.realized_pl, 'unrealized_pl':cls.unrealized_pl, 'total_fee':cls.total_fee, 'num_trade':cls.num_trade, 'win_rate':cls.win_rate}
 
 
     @classmethod

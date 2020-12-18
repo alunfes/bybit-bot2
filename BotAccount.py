@@ -121,7 +121,17 @@ class BotAccount:
 
     @classmethod
     def cancel_order(cls, order_id, leaves_qty):
-        
+        with cls.__lock_order:
+            if cls.order_leaves_qty != leaves_qty:
+                pass
+            
+    
+    @classmethod
+    def __del_order(cls, order_id):
+        with cls.__lock_order:
+            pass
+            
+
 
 
     @classmethod

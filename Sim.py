@@ -1,5 +1,9 @@
 import threading
 import time
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
+import pandas as pd
+import asyncio
 
 from SimAccount import SimAccount
 from Strategy import Strategy, ActionData
@@ -9,6 +13,8 @@ from Gene import Gene
 from SystemFlg import SystemFlg
 from NN import NN
 from LogMaster import LogMaster
+from LineNotification import LineNotification
+
 
 
 '''
@@ -70,15 +76,20 @@ class Sim:
                     print('nn ouput=', {0:'no', 1: 'buy', 2:'sell', 3:'cancel'}[self.pred_log[-1]])
                     performance_log = SimAccount.get_performance_data()
                     del performance_log['total_pl_list']
-                    print('-----Performance Data-----')
+                    print('----------------------------------------Performance Data--------------------------------------------')
                     print(performance_log)
-                    print('-----Holding Data-----')
+                    print('-------------------------------------------Holding Data---------------------------------------------')
                     print(SimAccount.get_holding_data())
-                    print('-----Order Data-----')
+                    print('--------------------------------------------Order Data----------------------------------------------')
                     print(SimAccount.get_order_data())
-                    print('-----Trade Log-----')
+                    print('--------------------------------------------Trade Log-----------------------------------------------')
                     print(SimAccount.get_latest_trade_log())
                     print('**************************************************************************************************')
+                    #send message
+                    plog = LogMaster.get_sim_performance_log()
+                    th = threading.Thread(target=self.__generate_pl_chart, args=([plog]))
+                    th.start()
+                    
                 self.loop_i += 1
             time.sleep(1)
 
@@ -91,6 +102,22 @@ class Sim:
         #print('Sim: nn output=', self.pred, ':', {0:'no', 1: 'buy', 2:'sell', 3:'cancel'}[self.pred])
 
 
+    def __generate_pl_chart(self, plog):
+        if len(plog) > 2:
+            df = pd.concat([pd.DataFrame(plog.values()), pd.DataFrame({'dt':plog.keys()})], axis=1)
+            df = df.set_index('dt')
+            fig, ax = plt.subplots()
+            plt.plot(df.index, df['total_pl'])
+            #plt.xticks(rotation=70)
+            xfmt = mdates.DateFormatter("%d - %H:%M")
+            ax.xaxis.set_major_formatter(xfmt)
+            labels = ax.get_xticklabels()
+            plt.setp(labels, rotation=45, fontsize=10)
+            plt.show()
+            plt.savefig('./Image/sim_pl.jpg')
+            plt.close()
+
+
     def __sim_action_process(self, i, actions:ActionData, ohlc):
         for j in range(len(actions.action)):
             if actions.action[j] == 'entry':
@@ -101,4 +128,4 @@ class Sim:
                 print('update amount is not programmed !')
                 pass
             elif actions.action[j] == 'update price':
-                SimAccount.update_order_price(i, actions.order_price[j])
+                SimAccount.update_order_price(i, actions.order_serial_num[j], actions.order_price[j])

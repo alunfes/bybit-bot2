@@ -6,8 +6,8 @@ import threading
 import pandas as pd
 
 '''
-Sim / Botからlogデータの入力をasyncで受け付ける。
-データが一定量溜まったらcsvに書き出す。
+Sim / Botからlogデータの入力を受け付ける。
+データが一定量溜まったらasyncでcsvに書き出す。
 他クラスからの要請に応じてデータを渡す。
 '''
 class LogMaster:
@@ -46,4 +46,7 @@ class LogMaster:
             else:
                 cls.__sim_trade_log[dt].append(trade_log)
 
-
+    @classmethod
+    def get_sim_performance_log(cls):
+        with cls.__lock_sim_log:
+            return cls.__sim_performance_log

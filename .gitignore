@@ -1,6 +1,8 @@
 /Data/
 /ignore/
 /Model/
+/Image/
 /__pycache__/
 *.csv
 *.dat
+*.gz

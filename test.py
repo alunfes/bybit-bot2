@@ -1,18 +1,27 @@
 import time
 import threading
+import asyncio
 
 class test:
     def __init__(self):
-        MD.initialize()
-        th = threading.Thread(target=self.start_thread)
-        th.start()
+        asyncio.run(self.start_thread())
+        #asyncio.to_thread(self.start_thread)
+        print('started')
+        #MD.initialize()
+        #th = threading.Thread(target=self.start_thread)
+        #th.start()
 
-    def start_thread(self):
-        while True:
-            print('test')
-            time.sleep(1)
+    async def start_thread(self):
+        #task = asyncio.create_task(self.hello("Taro"))
+        await asyncio.to_thread(self.hello("Taro"))
+        print('ok')
+        await asyncio.sleep(2)
+        print('done')
 
-
+    async def hello(self, name: str, wait_time: int = 2):
+        print('Hello ...')
+        await asyncio.sleep(wait_time)
+        print(f'{name}!')
 
 class MD:
     @classmethod
