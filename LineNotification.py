@@ -22,6 +22,18 @@ class LineNotification:
         loop.run_until_complete(cls.__send_message(message))
 
     @classmethod
+    def send_performance(cls, performance_data): #performance_data{'total_pl':cls.total_pl, 'realized_pl':cls.realized_pl, 'unrealized_pl':cls.unrealized_pl, 'total_fee':cls.total_fee, 'num_trade':cls.num_trade, 'win_rate':cls.win_rate}
+        loop = asyncio.new_event_loop()
+        loop.run_until_complete(cls.__send_message('\rtotal pl='+str(round(performance_data['total_pl'],4))+'\rrealized pl='+str(performance_data['realized_pl'])+
+        '\runrealized pl='+str(performance_data['unrealized_pl'])+'\rtotal fee='+str(round(performance_data['total_fee'],4))+'\rnum trade='+str(performance_data['num_trade'])+
+        '\rwin rate='+str(performance_data['win_rate'])))
+
+    @clssmethod
+    def send_holding(cls, holding_data): #{'side':cls.holding_side, 'size':cls.holding_size, 'price':cls.holding_price, 'i':cls.holding_i, 'period':cls.holding_period}
+        loop = asyncio.new_event_loop()
+        loop.run_until_complete(cls.__send_message('\r---Holding Data---\rSide: '+holding_data[side] + '\rPrice: '+holding_data['price']+'\rperiod: '+holding_data['period']))
+
+    @classmethod
     async def __send_message(cls, message):
         payload = {"message": str(message)}
         try:
@@ -38,7 +50,7 @@ class LineNotification:
     async def __send_image(cls, image):
         payload = {"imageFile": image}
         try:
-            res = requests.post(cls.api_url, headers=cls.headers, params={"message" :  'PL Chart'}, files=payload, timeout=(6.0))
+            res = requests.post(cls.api_url, headers=cls.headers, params={"message" :  '\rPL Chart'}, files=payload, timeout=(6.0))
         except Exception as e:
             print('Line notify error!={}'.format(e))
 

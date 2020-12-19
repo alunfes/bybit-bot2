@@ -12,8 +12,7 @@ class test:
         #th.start()
 
     async def start_thread(self):
-        #task = asyncio.create_task(self.hello("Taro"))
-        await asyncio.to_thread(self.hello("Taro"))
+        task = asyncio.create_task(self.hello("Taro"))
         print('ok')
         await asyncio.sleep(2)
         print('done')

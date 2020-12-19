@@ -48,7 +48,7 @@ class Strategy:
             pass
         elif pred_side == 'cancel':
             if SimAccount.getLastOrderSide() != '':
-                ad.add_action('cancel', '', '', 0, 0, SimAccount.getLastOrderSide(), SimAccount.getLastSerialNum(), 'cancel all orders')
+                ad.add_action('cancel', '', '', 0, 0, SimAccount.getLastSerialNum(), 'cancel all orders')
         else:
             if pred_side == SimAccount.getLastOrderSide():
                 if holding_data['size'] + SimAccount.getLastOrderSize() < max_amount:

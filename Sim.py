@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import pandas as pd
 import asyncio
+import os
 
 from SimAccount import SimAccount
 from Strategy import Strategy, ActionData
@@ -75,7 +76,6 @@ class Sim:
                     print(ohlc)
                     print('nn ouput=', {0:'no', 1: 'buy', 2:'sell', 3:'cancel'}[self.pred_log[-1]])
                     performance_log = SimAccount.get_performance_data()
-                    del performance_log['total_pl_list']
                     print('----------------------------------------Performance Data--------------------------------------------')
                     print(performance_log)
                     print('-------------------------------------------Holding Data---------------------------------------------')
@@ -85,11 +85,14 @@ class Sim:
                     print('--------------------------------------------Trade Log-----------------------------------------------')
                     print(SimAccount.get_latest_trade_log())
                     print('**************************************************************************************************')
-                    #send message
+                    #create pl chart
                     plog = LogMaster.get_sim_performance_log()
-                    th = threading.Thread(target=self.__generate_pl_chart, args=([plog]))
-                    th.start()
-                    
+                    self.__generate_pl_chart(plog)
+                    #send message
+                    LineNotification.send_performance(performance_log)
+                    LineNotification.send_holding(SimAccount.get_holding_data())
+                    if os.path.isfile('./Image/sim_pl.jpg'):
+                        LineNotification.send_image(open('./Image/sim_pl.jpg', 'rb'))
                 self.loop_i += 1
             time.sleep(1)
 
