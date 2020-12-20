@@ -88,6 +88,13 @@ class RestAPI:
 
 
     @classmethod
+    def get_rate_limit_status(cls):
+        url = 'https://api.bybit.com/v2/private/rate_limit_status'
+        res = requests.get(url, params=None)
+        return res
+
+
+    @classmethod
     def update_onemin_data_csv(cls):
         print('updating onemine_data.csv...')
         df_original = pd.read_csv('./Data/onemin_bybit.csv')
@@ -121,7 +128,7 @@ class RestAPI:
 
 
 if __name__ == '__main__':
-    #RestAPI.initialize()
+    print(RestAPI.get_rate_limit_status())
     #print(RestAPI.get_ohlc(1, 1607457000))
-    RestAPI.update_onemin_data_csv()
+    #RestAPI.update_onemin_data_csv()
     #RestAPI.get_order_status('e99d3624-0a5b-43c7-a518-55d139fee8f1')

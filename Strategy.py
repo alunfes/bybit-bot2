@@ -1,40 +1,44 @@
 from Trade import Trade
 from SimAccount import SimAccount
 
+'''
+FullyExecuted / Cancelledの時だけholding dataをsize=1としてnn入力する。
+よって以下のようなsimとのgapがあり、NNの出力を本当の現状を考慮して適切なactionを判断しないといけない。
 
+・cancel判断だが、実は既にpartially executedでholdingがある。
+・cancel & opposite entry判断だが、実は既にpartially executedでholdingがある。
+・現在のbid-askでentryするが、ohlc['close']の方が有利な場合はohlc['close']でのentryとする。
+・
+
+・Partially executedで実は一部約定済みの時に
+'''
 class Strategy:
     @classmethod
     def bot_ga_limit_strategy(self, nn_output, amount, max_amount):
         ad = ActionData()
         pred_side = {0:'no', 1: 'buy', 2:'sell', 3:'cancel'}[nn_output]
-        order_data = SimAccount.get_order_data()
         holding_data = SimAccount.get_holding_data()
         if pred_side == 'no':
             pass
         elif pred_side == 'cancel':
-            if order_data['id'] != '':
-                ad.add_action('cancel', '', '', 0, 0, order_data['id'], 'cancel all orders')
+            if SimAccount.getLastOrderSide() != '':
+                ad.add_action('cancel', '', '', 0, 0, SimAccount.getLastSerialNum(), 'cancel all orders')
         else:
-            if pred_side == order_data['side']:
-                if holding_data['size'] + order_data['size'] < max_amount:
-                    ad.add_action('update amount', pred_side, 'limit', 0, order_data['size'] + amount, order_data['id'], 'update order amount')
+            if pred_side == SimAccount.getLastOrderSide():
+                if holding_data['size'] + SimAccount.getLastOrderSize() < max_amount:
+                    ad.add_action('update amount', pred_side, 'limit', 0, SimAccount.getLastOrderSize() + amount, SimAccount.getLastSerialNum(), 'update order amount')
                     print('Strategy: hit at update amount!')
-                if (order_data['side'] == 'buy' and Trade.get_bid_ask[0] != order_data['price']):
-                    ad.add_action('update price', pred_side, 'limit', Trade.get_bid_ask[0], order_data['size'], order_data['id'], 'update order price')
-                elif (order_data['side'] == 'sell' and Trade.get_bid_ask[1] != order_data['price']):
-                    ad.add_action('update price', pred_side, 'limit', Trade.get_bid_ask[1], order_data['size'], order_data['id'], 'update order price')
-            elif pred_side != order_data['side']:
-                if order_data['side'] != '':
-                    ad.add_action('cancel', '', '', 0, 0, order_data['id'], 'cancel all orders')
+                if (SimAccount.getLastOrderPrice() != ohlc['close']):
+                    ad.add_action('update price', pred_side, 'limit', ohlc['close'], SimAccount.getLastOrderSize(), SimAccount.getLastSerialNum(), 'update order price')
+            elif pred_side != SimAccount.getLastOrderSide():
+                if SimAccount.getLastOrderSide() != '':
+                    ad.add_action('cancel', '', '', 0, 0, SimAccount.getLastSerialNum(), 'cancel all orders')
                 if (pred_side == holding_data['side'] and holding_data['size'] + amount > max_amount) == False:
-                    bid_ask = Trade.get_bid_ask()
-                    ad.add_action('entry', pred_side, 'limit', bid_ask[0] if pred_side == 'buy' else bid_ask[1], amount, -1, 'entry order')
-            elif pred_side == holding_data['side'] and holding_data['size'] + order_data['size'] < max_amount:
-                bid_ask = Trade.get_bid_ask()
-                ad.add_action('entry', pred_side, 'limit', bid_ask[0] if pred_side == 'buy' else bid_ask[1], amount, -1, 'entry order')
-            elif pred_side != holding_data['side'] and order_data['side'] != pred_side:
-                bid_ask = Trade.get_bid_ask()
-                ad.add_action('entry', pred_side, 'limit', bid_ask[0] if pred_side == 'buy' else bid_ask[1], min([holding_data['size'] + amount, holding_data['side'] + max_amount]), -1, 'entry order')
+                    ad.add_action('entry', pred_side, 'limit', ohlc['close'], amount, SimAccount.getLastSerialNum(), 'entry order')
+            elif pred_side == holding_data['side'] and holding_data['size'] + SimAccount.getLastOrderSize() < max_amount: #
+                ad.add_action('entry', pred_side, 'limit', ohlc['close'], amount, SimAccount.getLastSerialNum(), 'entry order')
+            elif pred_side != holding_data['side'] and order_data['side'] != pred_side: #opposite side entry
+                ad.add_action('entry', pred_side, 'limit', ohlc['close'], min([holding_data['size'] + amount, holding_data['side'] + max_amount]), SimAccount.getLastSerialNum(), 'entry order')
         return ad
 
 

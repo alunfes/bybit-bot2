@@ -98,7 +98,7 @@ class Sim:
 
 
     def __nn_process(self, divergence_scaled):
-        nn_input = self.nn_input_data_generator.generate_nn_input_data_limit(divergence_scaled)
+        nn_input = self.nn_input_data_generator.generate_nn_input_data_limit_sim(divergence_scaled)
         nn_outputs = self.nn.calc_nn(nn_input, self.gene.num_units, self.gene.weight_gene1, self.gene.weight_gene2, self.gene.bias_gene1, self.gene.bias_gene2, 1)
         self.pred = self.nn.getActivatedUnit(nn_outputs)#{0:'no', 1: 'buy', 2:'sell', 3:'cancel'}[nn_output]
         self.pred_log.append(self.pred)

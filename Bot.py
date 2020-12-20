@@ -16,6 +16,9 @@ check and get latest ohlc from MarketData
 calc nn
 calc strategy
 place orders
+
+NN計算の直前にBoAccountのholding / performanceを更新してしたい。
+->botがohlc更新を把握したらohlcをBotAccountに渡してholding / performanceを更新する。更新後にBotAccountを使ってNN・Strategy計算
 '''
 class Bot():
     def __init__(self, order_size):
@@ -38,13 +41,18 @@ class Bot():
         while SystemFlg.get_system_flg():
             if MarketData.ohlc_bot_flg == True:
                 ohlc = MarketData.get_latest_ohlc(1)
-                self.__nn_process(ohlc['divergence_scaled'])
+                BotAccount.ohlc_update(ohlc)
+                self.__nn_process(ohlc)
+
                 
 
         time.sleep(0.5)
 
-    def __nn_process(self, divergence_scaled):
-        nn_input = self.nn_input_data_generator.generate_nn_input_data_limit(divergence_scaled)
+    def __nn_process(self, ohlc):
+        order_data = BotAccount.get_order_data_nn()
+        holding_data = BotAccount.get_holding_data_nn()
+        performance_data = BotAccount.get_performance_data_nn(ohlc)
+        nn_input = self.nn_input_data_generator.generate_nn_input_data_limit_bot(ohlc['divergence_scaled'], order_data, holding_data, performance_data)
         nn_outputs = self.nn.calc_nn(nn_input, self.gene.num_units, self.gene.weight_gene1, self.gene.weight_gene2, self.gene.bias_gene1, self.gene.bias_gene2, 1)
         self.pred = self.nn.getActivatedUnit(nn_outputs)#{0:'no', 1: 'buy', 2:'sell', 3:'cancel'}[nn_output]
         self.pred_log.append(self.pred)

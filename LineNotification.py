@@ -28,10 +28,10 @@ class LineNotification:
         '\runrealized pl='+str(performance_data['unrealized_pl'])+'\rtotal fee='+str(round(performance_data['total_fee'],4))+'\rnum trade='+str(performance_data['num_trade'])+
         '\rwin rate='+str(performance_data['win_rate'])))
 
-    @clssmethod
+    @classmethod
     def send_holding(cls, holding_data): #{'side':cls.holding_side, 'size':cls.holding_size, 'price':cls.holding_price, 'i':cls.holding_i, 'period':cls.holding_period}
         loop = asyncio.new_event_loop()
-        loop.run_until_complete(cls.__send_message('\r---Holding Data---\rSide: '+holding_data[side] + '\rPrice: '+holding_data['price']+'\rperiod: '+holding_data['period']))
+        loop.run_until_complete(cls.__send_message('\r---Holding Data---\rSide: '+holding_data['side'] + '\rPrice: '+str(holding_data['price'])+'\rperiod: '+str(holding_data['period'])))
 
     @classmethod
     async def __send_message(cls, message):
