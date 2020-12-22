@@ -5,23 +5,43 @@ from SimAccount import SimAccount
 FullyExecuted / Cancelledの時だけholding dataをsize=1としてnn入力する。
 よって以下のようなsimとのgapがあり、NNの出力を本当の現状を考慮して適切なactionを判断しないといけない。
 
-・cancel判断だが、実は既にpartially executedでholdingがある。
-・cancel & opposite entry判断だが、実は既にpartially executedでholdingがある。
-・現在のbid-askでentryするが、ohlc['close']の方が有利な場合はohlc['close']でのentryとする。
-・
 
-・Partially executedで実は一部約定済みの時に
+1.cancel判断だが、実は既にpartially executedでholdingがある。
+->cancelしてpartially executedのholdingを0にする反対売買注文を出す。 -> 
+2.cancel & opposite entry判断だが、実は既にpartially executedでholdingがある。
+3.現在のbid-askでentryするが、ohlc['close']の方が有利な場合はohlc['close']でのentryとする。
+4.判断した直後に既存のorderが全約定した。
+5.
+
+結局、partial executedが発生した時に、①holding無しとしてNNに入力する、②holding有りとしてNNに入力する、の2パターンになる。
+①holding無しとしてNNに入力する
+->NNはholding無しの前提でcancelや反対売買の判断を下す可能性があり、マーケットの値動きによっては（partial executed holding=buyなのにNNがsell判断で価格が下がり続ける）
+パフォーマンスが大幅に劣化する原因になる。また潜在的に常に実際と異なる情報でNN判断を下すことになる。
+②holding有りとしてNNに入力する
+->holding = buyでorder=buyというsimでは有りえない入力データを使ってNN判断下すことになり、パフォーマンスが検証に裏打ちされたものでなくなる。
+③holding有りとしてNNに入力するが、orderは残っていても無しとしてNNに入力する。
+->NNは全約定として反対売買を判断する ->order cancelしてholding sizeに対して反対売買すればいい
+->NNは全約定として保有（buy）を継続し価格が上がり続ける、botは残りのorderをprice updateしながら全約定を目指す。結果として平均約定値が高くなりパフォーマンスが悪化する。 ->避けることができないが、simよりbotの方が約定能力高いので、この場合はsimでも1分毎にprice updateすると思われる。
 '''
+
+
 class Strategy:
+    '''
+    Botのおいてpartial executedとなった場合は、holding size=1、order=なしとしてNN入力データを作成する。
+    Cancel判断されてもholding side=order sideの場合はcancelを実施しない。
+    '''
     @classmethod
     def bot_ga_limit_strategy(self, nn_output, amount, max_amount):
         ad = ActionData()
         pred_side = {0:'no', 1: 'buy', 2:'sell', 3:'cancel'}[nn_output]
-        holding_data = SimAccount.get_holding_data()
+        holding_data = BotAccount.get_holding_data()
+        order_data = BotAccount.get_order_data(BotAccount.get_order_ids()[-1])
+        performance_data = BotAccount.get_performance_data()
+        partial_exe_flg = True if (holding_data['side'] == order_data['side'] and holding_data['side'] != '') else False
         if pred_side == 'no':
             pass
         elif pred_side == 'cancel':
-            if SimAccount.getLastOrderSide() != '':
+            if order_data['side']!='' and partial_exe_flg== False:
                 ad.add_action('cancel', '', '', 0, 0, SimAccount.getLastSerialNum(), 'cancel all orders')
         else:
             if pred_side == SimAccount.getLastOrderSide():

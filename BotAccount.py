@@ -7,11 +7,16 @@ from MarketData import MarketData
 from Trade import Trade
 from LineNotification import LineNotification
 
-
+'''
+約定処理について：
+Partial Executedでもholdingは即時に反映させる。
+realized pl / 
+'''
 
 '''
-・Botからのorder idを受けて、それをprivate wsとTradeのデータで確認し、約定処理等行う。
-
+・Botからのorder idを受けて、Tradeのget order info by idで確認し、約定処理等行う。
+・約定処理はpartial executedでもholding / orderを即時更新するが、最終的にorder_status=Filled / Cancelledになった時点で
+・全てLimit orderを想定（板にぶつけてしまい結果としてmarket orderとなった場合も適切に対処）
 '''
 class BotAccount:
     @classmethod
@@ -35,7 +40,7 @@ class BotAccount:
         cls.order_leaves_qty = {}
         cls.order_type = {} #Limit, Market
         cls.order_dt = {}
-        cls.order_status = {} #
+        cls.order_status = {} #Filled, Cancelled, New, Created, PartiallyFilled
 
     @classmethod
     def __initialize_holding_data(cls):
@@ -79,7 +84,7 @@ class BotAccount:
     @classmethod
     def get_holding_data_nn(cls):
         with cls.lock_holding:
-            return {'side':cls.holding_side, 'size':1 if cls.holding_size > 0 else 0, 'price'Lcls.holding_price, 'period':cls.holding_period}
+            return {'side':cls.holding_side, 'size':1 if cls.holding_size > 0 else 0, 'price':cls.holding_price, 'period':cls.holding_period}
 
 
     @classmethod
@@ -141,10 +146,9 @@ class BotAccount:
 
 
     @classmethod
-    def __update_order(cls, order_id, price, size, leaves_qty, status):
+    def __update_order(cls, order_id, price, leaves_qty, status):
         with cls.__lock_order:
             cls.order_price[order_id] = price
-            cls.order_size[order_id] = size
             cls.order_leaves_qty[order_id] = leaves_qty
             cls.order_status[order_id] = status
 
@@ -156,9 +160,24 @@ class BotAccount:
 
 
     @classmethod
+    def get_order_data(cls, oid):
+        with cls.__lock_order:
+            if oid in cls.order_id:
+                return {'id':oid, 'side':cls.order_side[oid], 'price':cls.order_price[oid], 'size':cls.order_size[oid], 'leaves_qty':cls.order_leaves_qty[oid],
+                'type':cls.order_type[oid], 'dt':cls.order_dt[oid], 'status':cls.order_status[oid]}
+            else:
+                print('BotAccount.get_order_data: Unknown order id !', oid)
+
+    '''
+    partial execでholding side == order sideの場合は、order無しとしてNNに入力する。
+    '''
+    @classmethod
     def get_order_data_nn(cls):
         with cls.__lock_order:
-            return {'side':cls.order_side[cls.order_id[-1]]}
+            if cls.holding_side == cls.order_side[cls.order_id[-1]]:
+                return {'side':''}
+            else:
+                return {'side':cls.order_side[cls.order_id[-1]]}
 
 
     @classmethod
@@ -236,36 +255,47 @@ class BotAccount:
 
 
     '''
-    今のNNでは、partially executionでorder / holdingの両方が同じsideで存在することはないため、fully executed, cancelled (partially executed)の時だけholdingを反映
+    Partiall
     '''
     @classmethod
     def __process_execution(cls, oid, side, qty, leaves_qty, cum_exec_qty, otype, exec_price, cum_exec_fee, order_status):
+        cls.__calc_fee(otype, cum_exec_fee, exec_price, average_price)
+        cls.__calc_realized_pl(cum_exec_qty, exec_price)
         if otype == 'Market':
             cls.num_market_order += 1
             print('Bot.__process_execution: Order was executed as a market order !')
             LineNotification.send_message('Bot.__process_execution: Order was executed as a market order !')
+        #update holding data
+        if cls.holding_side == '':
+            cls.__update_holding_data(side, cum_exec_qty, exec_price, datetime.datetime.now(), 0)    
+            print('Bot: New Entry: ', side + ' @', exec_price, ' x ', cls.order_size[k])
+        elif cls.holding_side == cls.order_side[oid]: #Additional Entry (Remaining parts of partial execution)
+            ave_price = round(((cls.holding_price * cls.holding_size) + (exec_price * cum_exec_qty)) / (cum_exec_qty + cls.holding_size))  # averaged holding price
+            cls.__update_holding_data(side, cls.holding_size + cum_exec_qty, ave_price, cls.holding_dt, cls.holding_period)
+            print('Bot: Additional Entry: ', side + ' @', exec_price, ' x ', cls.order_size[k])
+        elif cls.holding_size > cum_exec_qty: #Opposite Entry (h>o)
+            cls.__update_holding_data(cls.holding_side, cls.holding_size - cum_exec_qty, cls.holding_price, cls.holding_dt, cls.holding_period)
+            print('Bot: Opposite Entry: ', side + ' @', exec_price, ' x ', cls.order_size[k])
+        elif cls.holding_size == cls.order_size[k]: #All Exit
+            cls.__initialize_holding_data()
+            print('Bot: All Exit: ', side + ' @', exec_price, ' x ', cls.order_size[k])
+        elif cls.holding_size < cls.order_size[k]: #Opposite Entry (h<o)
+            cls.__update_holding_data(side, cum_exec_qty - cls.holding_size, exec_price, datetime.datetime.now(), 0)
+            print('Bot: Opposite Entry: ', side + ' @', exec_price, ' x ', cls.order_size[k])
+        else:
+            print('BotAccount.__process_execution: Undefined Situation !')
+            LineNotification.send_message('BotAccount.__process_execution: Undefined Situation !')
+        
+        #update order data
         if order_status == 'Filled' or order_status == 'Cancelled':
-            cls.__calc_fee(otype, cum_exec_fee, exec_price, average_price)
-            cls.__calc_realized_pl(cum_exec_qty, exec_price)
-            if cls.holding_side == '': #new entry side, size, price, dt, period
-                cls.__update_holding_data(side, cum_exec_qty, exec_price, datetime.datetime.now(), 0)    
-                print('Bot New Entry: ', side + ' @', exec_price, ' x ', cls.order_size[k])
-            elif cls.holding_side == cls.order_side[oid]: #Additional Entry
-                ave_price = round(((cls.holding_price * cls.holding_size) + (exec_price * cum_exec_qty)) / (cum_exec_qty + cls.holding_size))  # averaged holding price
-                cls.__update_holding_data(side, cls.holding_size + cum_exec_qty, ave_price, cls.holding_dt, cls.holding_period)
-            elif cls.holding_size > cum_exec_qty: #Opposite Entry (h>o)
-                cls.__update_holding_data(cls.holding_side, cls.holding_size - cum_exec_qty, cls.holding_price, cls.holding_dt, cls.holding_period)
-            elif cls.holding_size == cls.order_size[k]: #All Exit
-                cls.__initialize_holding_data()
-            elif cls.holding_size < cls.order_size[k]: #Opposite Entry (h<o)
-                cls.__update_holding_data(side, cum_exec_qty - cls.holding_size, exec_price, datetime.datetime.now(), 0)
-            else:
-                print('BotAccount.__process_execution: Undefined Situation !')
-                LineNotification.send_message('BotAccount.__process_execution: Undefined Situation !')
             cls.__del_order(oid)
-        else: #Partially filled
+            print('Bot: Order ', order_status, ' - ', side, ' @ ', exec_price, ' x ', qty)
+        else: #New, Created, PartiallyFilled
             print('BotAccount.__process_execution: Partially Filled. Order ID=', oid, ', side=', side, 'exec qty=', cls.order_size[oid] - leaves_qty, ' @ ', exec_price)
-            cls.__update_order(oid, cls.order_price[oid, qty, leaves_qty, 'PartiallyFilled']) #order_id, price, size, leaves_qty, status
+            cls.__update_order(oid, cls.order_price[oid], leaves_qty, 'PartiallyFilled']) #order_id, price, leaves_qty, status
+
+
+
 
     '''
     feeはorderがFully executedもしくはcancelledとなった時のみ計算し反映される。

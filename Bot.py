@@ -12,13 +12,15 @@ from LogMaster import LogMaster
 
 
 '''
-check and get latest ohlc from MarketData
-calc nn
-calc strategy
-place orders
+前提条件
+・全てLimit orderを想定（板にぶつけてしまい結果としてmarket orderとなった場合も適切に対処）
 
-NN計算の直前にBoAccountのholding / performanceを更新してしたい。
-->botがohlc更新を把握したらohlcをBotAccountに渡してholding / performanceを更新する。更新後にBotAccountを使ってNN・Strategy計算
+Botで管理するためのBotAccountとNN入力のためのBotAccountは分けて考える。
+（NN: partial executedで実際はholding / order両方で中途半端なsizeを持っていても、holding=1, order=0としてNN入力に使う）
+（Bot: 実際の状況を正確に反映させることを優先する。partial executedでholding / orderを実際の状況に合わせて更新）
+（Bot: performanceは、partial execの度にrealized_pl, feeを加算するので小さな桁で誤差が生じる可能性がある。）
+（）
+
 '''
 class Bot():
     def __init__(self, order_size):
