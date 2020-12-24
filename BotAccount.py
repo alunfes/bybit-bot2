@@ -140,7 +140,9 @@ class BotAccount:
             cls.order_dt[order_id] = datetime.datetime.now()
             cls.order_status[order_id] = 'New'
             if leaves_qty != size:
-                print('Bot: New entry order is already partially executed!')
+                print('Bot.add_order: New entry order is already partially executed!')
+            if len(cls.order_id) > 1:
+                print('Bot.add_order: Multi order exists !', cls.order_side, ' ; ', cls.order_price, ' ; ', cls.order_leaves_qty)
             th = threading.Thread(target=cls.__order_exec_check_thread)
             th.start()
 
