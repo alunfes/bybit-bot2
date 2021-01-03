@@ -22,6 +22,8 @@ class OneMinData:
         self.sma = {}
         self.divergence = {}
         self.divergence_scaled = pd.DataFrame()
+        self.vola_kyori = {}
+        self.vola_kyori_scaled = pd.DataFrame()
 
     def cut_data(self, cut_size):
         self.datetime = self.datetime[-cut_size:]
@@ -85,7 +87,7 @@ class MarketData:
             cls.ohlc_bot_flg = False
         else:
             print('MarketData-get_latest_ohlc: Invalid sim_bot_flg !', sim_bot_flg)
-        return {'dt':cls.ohlc.datetime[-1], 'open':cls.ohlc.open[-1], 'high':cls.ohlc.high[-1], 'low':cls.ohlc.low[-1], 'close':cls.ohlc.close[-1], 'divergence_scaled':cls.ohlc.divergence_scaled.iloc[-1]}
+        return {'dt':cls.ohlc.datetime[-1], 'open':cls.ohlc.open[-1], 'high':cls.ohlc.high[-1], 'low':cls.ohlc.low[-1], 'close':cls.ohlc.close[-1], 'divergence_scaled':cls.ohlc.divergence_scaled.iloc[-1], 'vola_kyori_scaled':cls.ohlc.vola_kyori_scaled.iloc[-1]}
 
 
     @classmethod
@@ -126,6 +128,8 @@ class MarketData:
             cls.calc_sma()
             cls.calc_divergence()
             cls.calc_divergence_scaled()
+            cls.calc_vola_kyori()
+            cls.calc_vola_kyori_scaled()
             cls.ohlc_sim_flg = True
             cls.ohlc_bot_flg = True
         else:
@@ -163,7 +167,7 @@ class MarketData:
 
     @classmethod
     def calc_sma(cls):
-        for t in cls.term_list:
+        for t in cls.term_list:  
             cls.ohlc.sma[t] = cls.df['close'].rolling(window=t).mean()
 
 
@@ -180,6 +184,22 @@ class MarketData:
             min_max_scaler = MinMaxScaler()
             x_scaled = min_max_scaler.fit_transform(df_divergence.T)
             cls.ohlc.divergence_scaled = pd.DataFrame(x_scaled).T
+
+    @classmethod
+    def calc_vola_kyori(cls):
+        for t in cls.term_list: 
+            change_df = cls.df['close'].pct_change()
+            change_df = change_df.pow(2.0)
+            cls.ohlc.vola_kyori[t] = change_df.rolling(window=t).mean()
+
+    @classmethod
+    def calc_vola_kyori_scaled(cls):
+        with warnings.catch_warnings():
+            warnings.filterwarnings('ignore', r'All-NaN (slice|axis) encountered')
+            df_vola_kyori = pd.DataFrame(MarketData.ohlc.vola_kyori)
+            min_max_scaler = MinMaxScaler()
+            x_scaled = min_max_scaler.fit_transform(df_vola_kyori.T)
+            cls.ohlc.vola_kyori_scaled = pd.DataFrame(x_scaled).T
 
             
     @classmethod

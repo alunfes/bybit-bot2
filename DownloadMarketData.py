@@ -1,4 +1,5 @@
 import requests
+import urllib.request
 import pandas as pd
 import shutil
 import os
@@ -34,14 +35,18 @@ class DownloadMarketData:
             #[print(f) for f in self.target_file]
 
 
-      def get_file_list(self):
+      def get_file_list(self, from_year, from_month, from_day):
             target_url = 'https://public.bybit.com/trading/BTCUSD/'
             r = requests.get(target_url)         #requestsを使って、webから取得
             soup = BeautifulSoup(r.text, 'lxml') #要素を抽出
             for a in soup.find_all('a'):
                   #print(a.get('href'))
-                  self.file_urls.append(a.get('href'))
-                  self.num_files += 1
+                  urlstr = a.get('href').split('-')
+                  dt = datetime.datetime(int(urlstr[0].split('BTCUSD')[1]), int(urlstr[1]), int(urlstr[2].split('.')[0]))
+                  dt_from = datetime.datetime(from_year, from_month, from_day)
+                  if dt >= dt_from:
+                        self.file_urls.append(a.get('href'))
+                        self.num_files += 1
             return self.file_urls
 
 
@@ -49,21 +54,26 @@ class DownloadMarketData:
             file_name = os.path.basename(file_url)
             res = requests.get(file_url, stream=True)
             if res.status_code == 200:
+                  urllib.request.urlretrieve(file_url,"{0}".format(file_name))
                   print('url=', file_url)
                   print('file name=', file_name)
+                  shutil.move('./'+file_name, './Data/'+file_name, copy_function = shutil.copy2)
+                  '''
                   with open(os.path.basename(file_url), 'wb') as file:
-                        res.raw.decode_content = True
-                        shutil.copyfileobj(res.raw, file)
-                        shutil.move(file.name, './Data')
+                        #res.raw.decode_content = True
+                        #shutil.copyfileobj(res.raw, file)
+                        shutil.move(file, './Data')
                         print('downloaded ' + file_name)
+                  '''
+                  
 
       def download_all_targets(self):
             for f in self.target_file:
                   self.download_file('https://public.bybit.com/trading/BTCUSD/' + str(f))
                   time.sleep(1)
 
-      def download_all_targets_async(self):
-            self.get_file_list()
+      def download_all_targets_async(self, from_year, from_month, from_day):
+            self.get_file_list(from_year, from_month, from_day)
             self.__check_downloaded_file()
             self.__check_download_target_file()
             loop = asyncio.get_event_loop()
@@ -77,7 +87,7 @@ class DownloadMarketData:
             ohlcv_df = pd.DataFrame()
             i = 0
             for d in self.downloaded_file:
-                  df = pd.read_csv('./Data/'+d)
+                  df = pd.read_csv('./Data/'+d, compression='gzip')
                   ts.extend(df['timestamp'])
                   for timestamp_data in df['timestamp']:
                         dt.append(datetime.datetime.fromtimestamp(timestamp_data))
@@ -115,5 +125,5 @@ class DownloadMarketData:
 
 if __name__ == '__main__':
       dmd = DownloadMarketData()
-      dmd.download_all_targets_async()
+      dmd.download_all_targets_async(2021,1,2)
       dmd.convert_all_tick_to_ohlcv()

@@ -149,6 +149,12 @@ class SimAccount:
 
 
     @classmethod
+    def getNumOrders(cls):
+        with cls.lock_order:
+            return len(cls.order_serial_list)
+
+
+    @classmethod
     def getLastOrderSide(cls):
         with cls.lock_order:
             if (len(cls.order_serial_list) > 0):
@@ -193,8 +199,9 @@ class SimAccount:
                 print('sell price update issue: ', cls.order_price[oid], ' -> ', update_price)
                 cls.__add_trade_log(i, 'sell price update issue: '+ str(cls.order_price[oid]) + ' -> ' + str(update_price))
             if update_price > 0 and cls.order_side[oid] != '':
-                cls.order_price[oid] = update_price
                 cls.__add_trade_log(i, 'Updated order price: '+ str(cls.order_price[oid]) + ' -> ' + str(update_price))
+                cls.order_price[oid] = update_price
+                
 
     @classmethod
     def cancel_order(cls, i, oid):
@@ -291,12 +298,12 @@ class SimAccount:
             cls.__add_trade_log(i, 'Executed New Entry: '+cls.order_side[k] + ' @'+ str(exec_price)+ ' x '+str(cls.order_size[k]))
         elif cls.holding_side == cls.order_side[k]:
             ave_price = round(((cls.holding_price * cls.holding_size) + (exec_price * cls.order_size[k])) / (cls.order_size[k] + cls.holding_size))  # averaged holding price
-            cls.__update_holding(cls.holding_side, ave_price, cls.order_size[k] + cls.holding_size, i)
+            cls.__update_holding(cls.holding_side, ave_price, cls.order_size[k] + cls.holding_size, i, cls.holding_period) #side, price, size, i, period
             #print('Sim Additional Entry: ', cls.order_side[k] + ' @', exec_price, ' x ', cls.order_size[k])
             cls.__add_trade_log(i, 'Executed Additional Entry: '+cls.order_side[k] + ' @'+str(exec_price)+ ' x '+str(cls.order_size[k]))
         elif cls.holding_size > cls.order_size[k]:
             cls.__calc_executed_pl(exec_price, cls.order_size[k], i)
-            cls.__update_holding(cls.holding_side, cls.holding_price, cls.holding_size - cls.order_size[k], i)
+            cls.__update_holding(cls.holding_side, cls.holding_price, cls.holding_size - cls.order_size[k], i, cls.holding_period)
             #print('Sim Partial Exit: ', cls.order_side[k] + ' @', exec_price, ' x ', cls.order_size[k])
             cls.__add_trade_log(i, 'Executed Partial Exit: '+cls.order_side[k] + ' @'+str(exec_price)+ ' x '+str(cls.order_size[k]))
         elif cls.holding_size == cls.order_size[k]:
@@ -306,7 +313,7 @@ class SimAccount:
             cls.__add_trade_log(i, 'Executed All Exit: '+cls.order_side[k] + ' @'+str(exec_price)+ ' x '+str(cls.order_size[k]))
         elif cls.holding_size < cls.order_size[k]:
             cls.__calc_executed_pl(exec_price, cls.holding_size, i)
-            cls.__update_holding(cls.order_side[k], exec_price, cls.order_size[k] - cls.holding_size, i)
+            cls.__update_holding(cls.order_side[k], exec_price, cls.order_size[k] - cls.holding_size, i, 0)
             #print('Sim Opposite Side Entry: ', cls.order_side[k] + ' @', exec_price, ' x ', cls.order_size[k])
             cls.__add_trade_log(i, 'Executed Opposide Side Entry: '+cls.order_side[k] + ' @'+str(exec_price)+ ' x '+str(cls.order_size[k]))
         else:

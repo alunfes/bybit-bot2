@@ -54,11 +54,14 @@ class Sim:
         while SystemFlg.get_system_flg():
             if MarketData.ohlc_sim_flg == True:
                 #毎分MarketDataでohlc / indexが更新されたことを確認
-                ohlc = MarketData.get_latest_ohlc(0) #{'dt', 'open', 'high', 'low', 'close', 'divergence_scaled'}
+                ohlc = MarketData.get_latest_ohlc(0) #{'dt', 'open', 'high', 'low', 'close', 'divergence_scaled', 'vola_kyori_scaled}
                 #SimAccountのpl / holding periodなどを更新
                 SimAccount.ohlc_update(self.loop_i, ohlc)
+                #check invalid ac situation
+                if SimAccount.getNumOrders() > 1:
+                    print('Sim: # of order is more than 1 !')
                 #nnの計算を行い、strategyで必要なアクションを計算
-                self.__nn_process(ohlc['divergence_scaled'])
+                self.__nn_process(ohlc['divergence_scaled'], ohlc['vola_kyori_scaled'])
                 #SimAccountのorderを更新する。
                 actions = Strategy.sim_ga_limit_strategy(self.pred, 1, self.max_amount, ohlc)
                 self.__sim_action_process(self.loop_i, actions, ohlc)
@@ -73,6 +76,7 @@ class Sim:
                     print('**************************************************************************************************')
                     print('i=',self.loop_i)
                     del ohlc['divergence_scaled']
+                    del ohlc['vola_kyori_scaled']
                     print(ohlc)
                     print('nn ouput=', {0:'no', 1: 'buy', 2:'sell', 3:'cancel'}[self.pred_log[-1]])
                     performance_log = SimAccount.get_performance_data()
@@ -97,8 +101,8 @@ class Sim:
             time.sleep(1)
 
 
-    def __nn_process(self, divergence_scaled):
-        nn_input = self.nn_input_data_generator.generate_nn_input_data_limit_sim(divergence_scaled)
+    def __nn_process(self, divergence_scaled, vola_kyori_scaled):
+        nn_input = self.nn_input_data_generator.generate_nn_input_data_limit_sim(divergence_scaled, vola_kyori_scaled)
         nn_outputs = self.nn.calc_nn(nn_input, self.gene.num_units, self.gene.weight_gene1, self.gene.weight_gene2, self.gene.bias_gene1, self.gene.bias_gene2, 1)
         self.pred = self.nn.getActivatedUnit(nn_outputs)#{0:'no', 1: 'buy', 2:'sell', 3:'cancel'}[nn_output]
         self.pred_log.append(self.pred)
@@ -132,3 +136,5 @@ class Sim:
                 pass
             elif actions.action[j] == 'update price':
                 SimAccount.update_order_price(i, actions.order_serial_num[j], actions.order_price[j])
+            else:
+                print('Sim: Unknown strategy action !')

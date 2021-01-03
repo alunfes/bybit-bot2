@@ -257,7 +257,7 @@ class BotAccount:
 
 
     '''
-    Partiall
+    
     '''
     @classmethod
     def __process_execution(cls, oid, side, qty, leaves_qty, cum_exec_qty, otype, exec_price, cum_exec_fee, order_status):
@@ -287,16 +287,13 @@ class BotAccount:
         else:
             print('BotAccount.__process_execution: Undefined Situation !')
             LineNotification.send_message('BotAccount.__process_execution: Undefined Situation !')
-        
         #update order data
         if order_status == 'Filled' or order_status == 'Cancelled':
             cls.__del_order(oid)
             print('Bot: Order ', order_status, ' - ', side, ' @ ', exec_price, ' x ', qty)
         else: #New, Created, PartiallyFilled
             print('BotAccount.__process_execution: Partially Filled. Order ID=', oid, ', side=', side, 'exec qty=', cls.order_size[oid] - leaves_qty, ' @ ', exec_price)
-            cls.__update_order(oid, cls.order_price[oid], leaves_qty, 'PartiallyFilled']) #order_id, price, leaves_qty, status
-
-
+            cls.__update_order(oid, cls.order_price[oid], leaves_qty, 'PartiallyFilled')
 
 
     '''
