@@ -87,7 +87,8 @@ class MarketData:
             cls.ohlc_bot_flg = False
         else:
             print('MarketData-get_latest_ohlc: Invalid sim_bot_flg !', sim_bot_flg)
-        return {'dt':cls.ohlc.datetime[-1], 'open':cls.ohlc.open[-1], 'high':cls.ohlc.high[-1], 'low':cls.ohlc.low[-1], 'close':cls.ohlc.close[-1], 'divergence_scaled':cls.ohlc.divergence_scaled.iloc[-1], 'vola_kyori_scaled':cls.ohlc.vola_kyori_scaled.iloc[-1]}
+        return {'dt':cls.ohlc.datetime[-1], 'open':cls.ohlc.open[-1], 'high':cls.ohlc.high[-1], 'low':cls.ohlc.low[-1], 'close':cls.ohlc.close[-1], 
+        'divergence_scaled':cls.ohlc.divergence_scaled.iloc[-1], 'vola_kyori_scaled':cls.ohlc.vola_kyori_scaled.iloc[-1]}
 
 
     @classmethod

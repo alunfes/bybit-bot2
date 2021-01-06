@@ -77,6 +77,7 @@ class Sim:
                     print('i=',self.loop_i)
                     del ohlc['divergence_scaled']
                     del ohlc['vola_kyori_scaled']
+                    del ohlc['vol_ma_divergence_scaled']
                     print(ohlc)
                     print('nn ouput=', {0:'no', 1: 'buy', 2:'sell', 3:'cancel'}[self.pred_log[-1]])
                     performance_log = SimAccount.get_performance_data()

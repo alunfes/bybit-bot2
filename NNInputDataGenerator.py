@@ -64,7 +64,7 @@ class NNInputDataGenerator:
         return input_data
     
     
-    def generate_nn_input_data_limit_sim(self, divergence_scaled, vola_kyori_scaled):
+    def generate_nn_input_data_limit_sim(self, divergence_scaled, vola_kyori_scaled, vol_ma_divergence_scaled):
         holding_data = SimAccount.get_holding_data()
         performance_data = SimAccount.get_performance_data()
 
@@ -73,6 +73,9 @@ class NNInputDataGenerator:
 
         #vola kyori
         input_data.extend(np.array(vola_kyori_scaled).T.tolist())
+
+        #volume ma divergence
+        input_data.extend(np.array(vol_ma_divergence_scaled).T.tolist())
 
         #order side
         if SimAccount.getNumOrders() > 0:
@@ -92,8 +95,8 @@ class NNInputDataGenerator:
 
         #holding side
         if holding_data['side'] =='buy':
-            input_data.append(1)
             input_data.append(0)
+            input_data.append(1)
         elif holding_data['side'] =='sell':
             input_data.append(0)
             input_data.append(1)
