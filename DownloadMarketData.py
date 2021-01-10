@@ -159,7 +159,7 @@ class DownloadMarketData:
                               con_df = pd.concat([sell_df, cop_df])
                               con_df.sort_index()
                               sell_df = con_df
-                  for i in range(len(all_df)):
+                  for i in range(len(all_df)): #calc bid ask
                         if all_df['close'].iloc[i] == buy_df['close'].iloc[i]:
                               ask.append(all_df['close'].iloc[i])
                               bid.append(all_df['close'].iloc[i] - 0.5)
@@ -170,6 +170,16 @@ class DownloadMarketData:
                   all_df['ask'] = ask
                   all_df['buy_vol'] = buy_df['size']
                   all_df['sell_vol'] = sell_df['size']
+                  #use same ohlc, bid, ask as previous(1min before) data for size=0 data
+                  size_zero_target = all_df[all_df['size'] == 0]
+                  for 
+
+                  for i in range(len(all_df)):
+                        if (all_df['size'].iloc[i] == 0):
+                              all_df.iloc[i] = all_df.iloc[i-1]
+                              all_df['size'].iloc[i] = 0
+                              all_df['buy_vol'].iloc[i] = 0
+                              all_df['sell_vol'].iloc[i] = 0
                   if len(ohlcv_df) == 0:
                         ohlcv_df = all_df
                   else:
