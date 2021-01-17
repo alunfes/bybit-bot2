@@ -123,6 +123,7 @@ class DownloadMarketData:
             print('Converting tick files to ohlcv data...')
             self.__check_downloaded_file()
             ohlcv_df = pd.DataFrame()
+
             for d in self.downloaded_file:
                   all_df = pd.DataFrame()
                   buy_df= pd.DataFrame()
@@ -171,22 +172,25 @@ class DownloadMarketData:
                   all_df['buy_vol'] = buy_df['size']
                   all_df['sell_vol'] = sell_df['size']
                   #use same ohlc, bid, ask as previous(1min before) data for size=0 data
+                  '''
                   size_zero_target = all_df[all_df['size'] == 0]
-                  for 
-
-                  for i in range(len(all_df)):
-                        if (all_df['size'].iloc[i] == 0):
-                              all_df.iloc[i] = all_df.iloc[i-1]
-                              all_df['size'].iloc[i] = 0
-                              all_df['buy_vol'].iloc[i] = 0
-                              all_df['sell_vol'].iloc[i] = 0
+                  if size_zero_target.empty == False:
+                        index = all_df.index.get_loc(pd.Timestamp(int(size_zero_target.index[0].timestamp()), unit='s', freq='T'))
+                        all_df.iloc[index] = all_df.iloc[index-1]
+                        all_df['size'].iloc[index] = 0
+                        all_df['buy_vol'].iloc[index] = 0
+                        all_df['sell_vol'].iloc[index] = 0
+                        print(all_df.iloc[index-3: index+3])
+                  '''
                   if len(ohlcv_df) == 0:
                         ohlcv_df = all_df
                   else:
                         ohlcv_df = pd.concat([ohlcv_df, all_df], axis=0)
-            ohlcv_df = self.__check_ohlc_data(ohlcv_df)
+            ohlcv_df = self.__check_ohlc_data2(ohlcv_df)
+            ohlcv_df.index.name = 'dt'
             ohlcv_df.to_csv('./Data/onemin_bybit.csv', index=True)
-            print(ohlcv_df)
+            print(ohlcv_df.iloc[3485:3490])
+            pass
 
 
       def __check_ohlc_data(self, df):
@@ -194,6 +198,15 @@ class DownloadMarketData:
             for i in range(len(df)):
                   if df['size'].iloc[i] == 0:
                         df['open'].iloc[i], df['high'].iloc[i], df['low'].iloc[i], df['close'].iloc[i], df['size'].iloc[i]  = df['open'].iloc[i-1], df['high'].iloc[i-1], df['low'].iloc[i-1], df['close'].iloc[i-1], 0
+                        num_correction += 1
+            print('corrected ', num_correction, ' data.')
+            return df
+
+      def __check_ohlc_data2(self, df):
+            num_correction = 0
+            for i in range(len(df)):
+                  if df['size'].iloc[i] == 0:
+                        df['open'].iloc[i], df['high'].iloc[i], df['low'].iloc[i], df['close'].iloc[i], df['size'].iloc[i], df['bid'].iloc[i], df['ask'].iloc[i], df['buy_vol'].iloc[i], df['sell_vol'].iloc[i]  = df['open'].iloc[i-1], df['high'].iloc[i-1], df['low'].iloc[i-1], df['close'].iloc[i-1], 0, df['bid'].iloc[i-1], df['ask'].iloc[i-1], 0, 0
                         num_correction += 1
             print('corrected ', num_correction, ' data.')
             return df
