@@ -90,6 +90,7 @@ class DownloadMarketData:
             data = loop.run_until_complete(self.handler(loop))
             print('completed download files !')
 
+
       def convert_all_tick_to_ohlcv(self):
             print('Converting tick files to ohlcv data...')
             self.__check_downloaded_file()

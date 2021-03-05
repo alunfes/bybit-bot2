@@ -1,6 +1,7 @@
 import datetime
 import time
 import pandas as pd
+import numpy as np
 import threading
 import warnings
 from sklearn.preprocessing import MinMaxScaler
@@ -9,6 +10,7 @@ from RestAPI import RestAPI
 from Gene import Gene
 from NNInputDataGenerator import NNInputDataGenerator
 from NN import NN
+
 
 class OneMinData:
     def initialize(self):
@@ -24,6 +26,15 @@ class OneMinData:
         self.divergence_scaled = pd.DataFrame()
         self.vola_kyori = {}
         self.vola_kyori_scaled = pd.DataFrame()
+        self.vol_ma_divergence = {}
+        self.vol_ma_divergence_scaled = pd.DataFrame()
+        self.rsi = {}
+        self.rsi_scaled = pd.DataFrame()
+        self.uwahige = {}
+        self.shitahige = {}
+        self.uwahige_scaled = pd.DataFrame()
+        self.shitahige_scaled = pd.DataFrame()
+
 
     def cut_data(self, cut_size):
         self.datetime = self.datetime[-cut_size:]
@@ -99,8 +110,21 @@ class MarketData:
         while SystemFlg.get_system_flg():
             if kijun_timestamp + 1 <= datetime.datetime.now().timestamp():
                 downloaded_df = RestAPI.get_ohlc(1, cls.ohlc.timestamp[-1] - 60)
+                buy_vol, sell_vol = RestAPI.get_buysell_vol()
                 cls.__add_ohlc_data(downloaded_df)
-                #print(cls.ohlc.get_df().iloc[-1:])
+                print(cls.ohlc.get_df().iloc[-1:])
+                print('divergence_scaled')
+                print(cls.ohlc.divergence_scaled.iloc[-1:])
+                print('vola_kyori_scaled')
+                print(cls.ohlc.vola_kyori_scaled.iloc[-1:])
+                print('vol_ma_divergence_scaled')
+                print(cls.ohlc.vol_ma_divergence_scaled.iloc[-1:])
+                print('rsi_scaled')
+                print(cls.ohlc.rsi_scaled.iloc[-1:])
+                print('uwahige_scaled')
+                print(cls.ohlc.uwahige_scaled.iloc[-1:])
+                print('shitahige_scaled')
+                print(cls.ohlc.shitahige_scaled.iloc[-1:])
                 kijun_timestamp += 60
             else:
                 time.sleep(1)
@@ -131,6 +155,14 @@ class MarketData:
             cls.calc_divergence_scaled()
             cls.calc_vola_kyori()
             cls.calc_vola_kyori_scaled()
+            cls.calc_vol_ma_divergence()
+            cls.calc_vol_ma_divergence_scaled()
+            cls.calc_rsi()
+            cls.calc_rsi_scaled()
+            cls.calc_uwahige()
+            cls.calc_shitahige()
+            cls.calc_uwahige_scaled()
+            cls.calc_shitahige_scaled()
             cls.ohlc_sim_flg = True
             cls.ohlc_bot_flg = True
         else:
@@ -185,6 +217,7 @@ class MarketData:
             min_max_scaler = MinMaxScaler()
             x_scaled = min_max_scaler.fit_transform(df_divergence.T)
             cls.ohlc.divergence_scaled = pd.DataFrame(x_scaled).T
+            cls.convert_col_for_scaled_data(cls.ohlc.divergence_scaled, 'divergence_scaled')
 
     @classmethod
     def calc_vola_kyori(cls):
@@ -197,15 +230,140 @@ class MarketData:
     def calc_vola_kyori_scaled(cls):
         with warnings.catch_warnings():
             warnings.filterwarnings('ignore', r'All-NaN (slice|axis) encountered')
-            df_vola_kyori = pd.DataFrame(MarketData.ohlc.vola_kyori)
+            df_vola_kyori = pd.DataFrame(cls.ohlc.vola_kyori)
             min_max_scaler = MinMaxScaler()
             x_scaled = min_max_scaler.fit_transform(df_vola_kyori.T)
             cls.ohlc.vola_kyori_scaled = pd.DataFrame(x_scaled).T
-
+            cls.convert_col_for_scaled_data(cls.ohlc.vola_kyori_scaled, 'vola_kyori_scaled')
             
+
+    @classmethod
+    def calc_vol_ma_divergence(cls):
+        with warnings.catch_warnings():
+            warnings.filterwarnings('ignore', r'All-NaN (slice|axis) encountered')
+            for t in cls.term_list:
+                vol_ma = []
+                vol_ma = cls.df['size'].rolling(window=t).mean()
+                cls.ohlc.vol_ma_divergence[t] = list((np.array(cls.ohlc.size) - np.array(vol_ma)) / np.array(vol_ma))
+
+    @classmethod
+    def calc_vol_ma_divergence_scaled(cls):
+        with warnings.catch_warnings():
+            warnings.filterwarnings('ignore', r'All-NaN (slice|axis) encountered')
+            df_vol_ma_div = pd.DataFrame(cls.ohlc.vol_ma_divergence)
+            min_max_scaler = MinMaxScaler()
+            x_scaled = min_max_scaler.fit_transform(df_vol_ma_div.T)
+            cls.ohlc.vol_ma_divergence_scaled = pd.DataFrame(x_scaled).T
+            cls.convert_col_for_scaled_data(cls.ohlc.vol_ma_divergence_scaled, 'vol_ma_divergence_scaled')
+    
+
+    @classmethod
+    def calc_rsi(cls):
+        for t in cls.term_list:
+            up_list = []
+            down_list = []
+            cls.ohlc.rsi[t] = []
+            r = 0
+            for i in range(1, t-1): 
+                if cls.ohlc.close[i+1] - cls.ohlc.close[i] > 0:
+                    up_list.append(cls.ohlc.close[i+1] - cls.ohlc.close[i])
+                    down_list.append(0)
+                else:
+                    down_list.append(cls.ohlc.close[i+1] - cls.ohlc.close[i])
+                    up_list.append(0)
+                cls.ohlc.rsi[t].append(np.nan)
+            up = sum(up_list) / t
+            down = -sum(down_list) / t
+            r = up / (up + down)
+            cls.ohlc.rsi[t].append(r)
+            for i in range(t-1, len(cls.ohlc.close)-1):
+                if cls.ohlc.close[i+1] - cls.ohlc.close[i] > 0:
+                    up_list.append(cls.ohlc.close[i+1] - cls.ohlc.close[i])
+                    down_list.append(0)
+                else:
+                    down_list.append(cls.ohlc.close[i+1] - cls.ohlc.close[i])
+                    up_list.append(0)
+                del up_list[0]
+                del down_list[0]
+                up = sum(up_list) / t
+                down = -sum(down_list) / t
+                if up == 0 and down == 0:
+                    r = 0
+                else:
+                    r = up / (up + down)
+                cls.ohlc.rsi[t].append(r)
+
+
+    @classmethod
+    def calc_rsi_scaled(cls):
+        with warnings.catch_warnings():
+            warnings.filterwarnings('ignore', r'All-NaN (slice|axis) encountered')
+            df_rsi = pd.DataFrame(cls.ohlc.rsi)
+            min_max_scaler = MinMaxScaler()
+            x_scaled = min_max_scaler.fit_transform(df_rsi.T)
+            cls.ohlc.rsi_scaled = pd.DataFrame(x_scaled).T
+            cls.convert_col_for_scaled_data(cls.ohlc.rsi_scaled, 'rsi_scaled')
+
+
+    @classmethod
+    def calc_uwahige(cls):
+        for t in cls.term_list:
+            cls.ohlc.uwahige[t] = []
+            for i in range(t):
+                cls.ohlc.uwahige[t].append(np.nan)
+            for i in range(t, len(cls.ohlc.close)):
+                close_list = cls.ohlc.close[i-t:i]
+                if close_list[0] > close_list[-1]: #insen
+                    cls.ohlc.uwahige[t].append(1000.0 * (max(close_list) - close_list[0]) / close_list[-1] / t)
+                else: #yosen
+                    cls.ohlc.uwahige[t].append( 1000.0 * (max(close_list) - close_list[-1]) / close_list[-1]/ t)
+
+    @classmethod
+    def calc_shitahige(cls):
+        for t in cls.term_list:
+            cls.ohlc.shitahige[t] = []
+            for i in range(t):
+                cls.ohlc.shitahige[t].append(np.nan)
+            for i in range(t, len(cls.ohlc.close)):
+                close_list = cls.ohlc.close[i-t:i]
+                if close_list[0] > close_list[-1]: #insen
+                    cls.ohlc.shitahige[t].append(1000.0 * (close_list[-1] - min(close_list)) / close_list[-1] / t)
+                else: #yosen
+                    cls.ohlc.shitahige[t].append( 1000.0 * (close_list[0] - min(close_list)) / close_list[-1]/ t)
+
+
+    @classmethod
+    def calc_uwahige_scaled(cls):
+        with warnings.catch_warnings():
+            warnings.filterwarnings('ignore', r'All-NaN (slice|axis) encountered')
+            df_uwahige = pd.DataFrame(cls.ohlc.uwahige)
+            min_max_scaler = MinMaxScaler()
+            x_scaled = min_max_scaler.fit_transform(df_uwahige.T)
+            cls.ohlc.uwahige_scaled = pd.DataFrame(x_scaled).T
+            cls.convert_col_for_scaled_data(cls.ohlc.uwahige_scaled, 'uwahige_scaled')
+
+    
+    @classmethod
+    def calc_shitahige_scaled(cls):
+        with warnings.catch_warnings():
+            warnings.filterwarnings('ignore', r'All-NaN (slice|axis) encountered')
+            df_shitahige = pd.DataFrame(cls.ohlc.shitahige)
+            min_max_scaler = MinMaxScaler()
+            x_scaled = min_max_scaler.fit_transform(df_shitahige.T)
+            cls.ohlc.shitahige_scaled = pd.DataFrame(x_scaled).T
+            cls.convert_col_for_scaled_data(cls.ohlc.shitahige_scaled, 'shitahige_scaled')
+
+    @classmethod
+    def convert_col_for_scaled_data(cls, data, var_name):
+        cols = []
+        for c in data:
+            cols.append(var_name+'-'+str(c))
+        data.columns = cols
+
+
     @classmethod
     def generate_df_from_dict(cls):
-        df = pd.DataFrame({'datetime':cls.ohlc.dt, 'open':cls.ohlc.open, 'high':cls.ohlc.high, 'low':cls.ohlc.low, 'close':cls.ohlc.close, 'size':cls.ohlc.size})
+        df = pd.DataFrame({'dt':cls.ohlc.dt, 'open':cls.ohlc.open, 'high':cls.ohlc.high, 'low':cls.ohlc.low, 'close':cls.ohlc.close, 'size':cls.ohlc.size})
         print('completed generate df')
         return df
 
@@ -213,7 +371,7 @@ class MarketData:
 
 if __name__ == '__main__':
     SystemFlg.initialize()
-    term_list = list(range(100, 1000, 100))
+    term_list = list(range(10, 1000, 100))
     MarketData.initialize_for_bot(term_list)
     while True:
         time.sleep(5)
