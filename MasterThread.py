@@ -7,6 +7,7 @@ from Bot import Bot
 from Sim import Sim
 from LogMaster import LogMaster
 from DownloadMarketData import DownloadMarketData
+from RestAPI import RestAPI
 
 
 class MasterThread:
@@ -17,7 +18,7 @@ class MasterThread:
         LogMaster.initialize()
         while True:
             print('Please select program mode.')
-            print('1: OHLCV data download')
+            print('1: OHLCV data update')
             print('2: MarketData test')
             print('3: Bot test')
             print('4: Sim')
@@ -25,12 +26,8 @@ class MasterThread:
             if select == '1':
                 dmd = DownloadMarketData()
                 dmd.download_all_targets_async(2017,1,2)
-                dmd.convert_all_tick_to_ohlcv2()
-                #check last datetime in OneMinData.csv
-                #get trading data from the latest datetime using API
-                #convert trading data to ohlcv + buy / sell vol
-                #add to OneMinData.csv
-                
+                dmd.update_ohlcv()
+                RestAPI.update_onemin_data()
                 break
             elif select == '2':
                 term_list = list(range(10, 1000, 100))

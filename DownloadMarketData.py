@@ -91,98 +91,75 @@ class DownloadMarketData:
             print('completed download files !')
 
 
-      def convert_all_tick_to_ohlcv(self):
-            print('Converting tick files to ohlcv data...')
-            self.__check_downloaded_file()
-            ts, dt, size, price = [], [], [], []
-            ohlcv_df = pd.DataFrame()
-            i = 0
-            for d in self.downloaded_file:
-                  df = pd.read_csv('./Data/'+d, compression='gzip')
-                  ts.extend(df['timestamp'])
-                  for timestamp_data in df['timestamp']:
-                        dt.append(datetime.datetime.fromtimestamp(timestamp_data))
-                  size.extend(df['size'])
-                  price.extend(df['price'])
-                  print('Converted file No.', i, ':', d)
-                  i += 1
-            ohlcv_df = pd.DataFrame({'price':price, 'size':size}, index=dt)
-            con_df = ohlcv_df['price'].resample('1T').ohlc()
-            con_df = con_df.assign(size=ohlcv_df['size'].resample('1T').sum())
-            con_df = con_df.reset_index().rename(columns={'index':'datetime'})
-            con_df = self.__check_ohlc_data(con_df)
-            con_df.to_csv('./Data/onemin_bybit.csv', index=False)
-            print('Generated ohlcv data, ./Data/onemin_bybit.csv')
-            print(con_df)
+      '''
+      trading dataをohlcv, bid ask, buy sell volに変換する。
+      ＊trading dfは、dt, price, size, sideからなるdataframeとする。
+      ＊trading dfのindexはdt
+      '''
+      def convert_tick_to_ohlcv(self, trading_df):
+            all_df = pd.DataFrame()
+            buy_df= pd.DataFrame()
+            sell_df = pd.DataFrame()
+            buy_tmp_df = pd.DataFrame()
+            sell_tmp_df = pd.DataFrame()
+            all_df = trading_df['price'].resample('1T').ohlc()
+            all_df = all_df.assign(size=trading_df['size'].resample('1T').sum())
+            buy_tmp_df = trading_df[trading_df['side'] == 'Buy']
+            buy_df = buy_tmp_df['price'].resample('1T').ohlc()
+            buy_df = buy_df.assign(size=buy_tmp_df['size'].resample('1T').sum())
+            sell_tmp_df = trading_df[trading_df['side'] == 'Sell']
+            sell_df = sell_tmp_df['price'].resample('1T').ohlc()
+            sell_df = sell_df.assign(size=sell_tmp_df['size'].resample('1T').sum())
+            bid = []
+            ask = []
+            #1分の間に1回もbuy/sellが無い場合があるので、数が一致しているか確認して、不一致がある場合には同じ時間のohlcvをsize=0として追加する。
+            if (len(all_df) == len(buy_df) == len(sell_df)) == False:
+                  if len(all_df) != len(buy_df):
+                        #欠けているindexを特定して、size=0として追加する
+                        target_index = list( set(all_df.index) - set(buy_df.index))
+                        cop_df = all_df.loc[target_index]
+                        cop_df['size']=0
+                        con_df = pd.concat([buy_df, cop_df])
+                        con_df.sort_index()
+                        buy_df = con_df
+                  if len(all_df) != len(sell_df):
+                        #欠けているindexを特定して、size=0として追加する
+                        target_index = list( set(all_df.index) - set(sell_df.index))
+                        cop_df = all_df.loc[target_index]
+                        cop_df['size']=0
+                        con_df = pd.concat([sell_df, cop_df])
+                        con_df.sort_index()
+                        sell_df = con_df
+            for i in range(len(all_df)): #calc bid ask
+                  if all_df['close'].iloc[i] == buy_df['close'].iloc[i]:
+                        ask.append(all_df['close'].iloc[i])
+                        bid.append(all_df['close'].iloc[i] - 0.5)
+                  else:
+                        bid.append(all_df['close'].iloc[i])
+                        ask.append(all_df['close'].iloc[i] + 0.5)
+            all_df['bid'] = bid
+            all_df['ask'] = ask
+            all_df['buy_vol'] = buy_df['size']
+            all_df['sell_vol'] = sell_df['size']
+            ohlcv_df = self.__check_ohlc_data2(all_df)
+            ohlcv_df.index.name = 'dt'
+            return ohlcv_df
 
 
       '''
+      直近までのtrading data fileをダウンロードして、全てのファイルデータを読み取りohlcvを計算する。
       all data、buyとsellの3つに分けてohlcを計算して、そこからall data closeと同じclose値がbuy or sellかによってbid / askを特定する。
       （buyのときは、ask=buy close, bid=buy close-0.5）
       '''
-      def convert_all_tick_to_ohlcv2(self):
+      def convert_all_tick_to_ohlcv(self):
             print('Converting tick files to ohlcv data...')
             self.__check_downloaded_file()
             ohlcv_df = pd.DataFrame()
-
             for d in self.downloaded_file:
                   all_df = pd.DataFrame()
-                  buy_df= pd.DataFrame()
-                  sell_df = pd.DataFrame()
-                  buy_tmp_df = pd.DataFrame()
-                  sell_tmp_df = pd.DataFrame()
                   tick_df = pd.read_csv('./Data/'+d, compression='gzip', index_col='timestamp')
                   tick_df.index = [datetime.datetime.fromtimestamp(x) for x in tick_df.index]
-                  all_df = tick_df['price'].resample('1T').ohlc()
-                  all_df = all_df.assign(size=tick_df['size'].resample('1T').sum())
-                  buy_tmp_df = tick_df[tick_df['side'] == 'Buy']
-                  buy_df = buy_tmp_df['price'].resample('1T').ohlc()
-                  buy_df = buy_df.assign(size=buy_tmp_df['size'].resample('1T').sum())
-                  sell_tmp_df = tick_df[tick_df['side'] == 'Sell']
-                  sell_df = sell_tmp_df['price'].resample('1T').ohlc()
-                  sell_df = sell_df.assign(size=sell_tmp_df['size'].resample('1T').sum())
-                  bid = []
-                  ask = []
-                  #1分の間に1回もbuy/sellが無い場合があるので、数が一致しているか確認して、不一致がある場合には同じ時間のohlcvをsize=0として追加する。
-                  if (len(all_df) == len(buy_df) == len(sell_df)) == False:
-                        if len(all_df) != len(buy_df):
-                              #欠けているindexを特定して、size=0として追加する
-                              target_index = list( set(all_df.index) - set(buy_df.index))
-                              cop_df = all_df.loc[target_index]
-                              cop_df['size']=0
-                              con_df = pd.concat([buy_df, cop_df])
-                              con_df.sort_index()
-                              buy_df = con_df
-                        if len(all_df) != len(sell_df):
-                              #欠けているindexを特定して、size=0として追加する
-                              target_index = list( set(all_df.index) - set(sell_df.index))
-                              cop_df = all_df.loc[target_index]
-                              cop_df['size']=0
-                              con_df = pd.concat([sell_df, cop_df])
-                              con_df.sort_index()
-                              sell_df = con_df
-                  for i in range(len(all_df)): #calc bid ask
-                        if all_df['close'].iloc[i] == buy_df['close'].iloc[i]:
-                              ask.append(all_df['close'].iloc[i])
-                              bid.append(all_df['close'].iloc[i] - 0.5)
-                        else:
-                              bid.append(all_df['close'].iloc[i])
-                              ask.append(all_df['close'].iloc[i] + 0.5)
-                  all_df['bid'] = bid
-                  all_df['ask'] = ask
-                  all_df['buy_vol'] = buy_df['size']
-                  all_df['sell_vol'] = sell_df['size']
-                  #use same ohlc, bid, ask as previous(1min before) data for size=0 data
-                  '''
-                  size_zero_target = all_df[all_df['size'] == 0]
-                  if size_zero_target.empty == False:
-                        index = all_df.index.get_loc(pd.Timestamp(int(size_zero_target.index[0].timestamp()), unit='s', freq='T'))
-                        all_df.iloc[index] = all_df.iloc[index-1]
-                        all_df['size'].iloc[index] = 0
-                        all_df['buy_vol'].iloc[index] = 0
-                        all_df['sell_vol'].iloc[index] = 0
-                        print(all_df.iloc[index-3: index+3])
-                  '''
+                  all_df = self.convert_tick_to_ohlcv(tick_df)
                   if len(ohlcv_df) == 0:
                         ohlcv_df = all_df
                   else:
@@ -190,9 +167,35 @@ class DownloadMarketData:
             ohlcv_df = self.__check_ohlc_data2(ohlcv_df)
             ohlcv_df.index.name = 'dt'
             ohlcv_df.to_csv('./Data/onemin_bybit.csv', index=True)
-            print(ohlcv_df.iloc[3485:3490])
             pass
 
+
+      '''
+      onemin_bybit.csvの最後の日付の翌日からのデータファイルを取得してohlcvとして追記する。
+      '''
+      def update_ohlcv(self):
+            df = pd.read_csv('./Data/onemin_bybit.csv')
+            latest_dt = datetime.datetime.strptime(df.iloc[-1]['dt'], '%Y-%m-%d %H:%M:%S')
+            self.__check_downloaded_file()
+            ohlcv_df = pd.DataFrame()
+            while True:
+                  latest_dt = latest_dt+datetime.timedelta(days=1)
+                  target_file_name = 'BTCUSD' + str(latest_dt.year) + '-' + str(str(latest_dt.month).zfill(2)) + '-' + str(str(latest_dt.day).zfill(2)) + '.csv.gz' #BTCUSD2021-03-02.csv.gz
+                  if target_file_name in self.downloaded_file:
+                        tick_df = pd.read_csv('./Data/'+target_file_name, compression='gzip', index_col='timestamp')
+                        tick_df.index = [datetime.datetime.fromtimestamp(x) for x in tick_df.index]
+                        all_df = self.convert_tick_to_ohlcv(tick_df)
+                        if len(ohlcv_df) == 0:
+                              ohlcv_df = all_df
+                        else:
+                              ohlcv_df = pd.concat([ohlcv_df, all_df], axis=0)
+                  else:
+                        break
+            ohlcv_df = self.__check_ohlc_data2(ohlcv_df)
+            ohlcv_df.index.name = 'dt'
+            ohlcv_df.to_csv('./Data/onemin_bybit.csv', mode='a', header=False, index=True)
+            print('DonwloadMarketData: Completed update_ohlcv.')
+      
 
       def __check_ohlc_data(self, df):
             num_correction = 0
@@ -200,7 +203,8 @@ class DownloadMarketData:
                   if df['size'].iloc[i] == 0:
                         df['open'].iloc[i], df['high'].iloc[i], df['low'].iloc[i], df['close'].iloc[i], df['size'].iloc[i]  = df['open'].iloc[i-1], df['high'].iloc[i-1], df['low'].iloc[i-1], df['close'].iloc[i-1], 0
                         num_correction += 1
-            print('corrected ', num_correction, ' data.')
+            if num_correction > 0:
+                  print('corrected ', num_correction, ' data.')
             return df
 
       def __check_ohlc_data2(self, df):
@@ -209,7 +213,8 @@ class DownloadMarketData:
                   if df['size'].iloc[i] == 0:
                         df['open'].iloc[i], df['high'].iloc[i], df['low'].iloc[i], df['close'].iloc[i], df['size'].iloc[i], df['bid'].iloc[i], df['ask'].iloc[i], df['buy_vol'].iloc[i], df['sell_vol'].iloc[i]  = df['open'].iloc[i-1], df['high'].iloc[i-1], df['low'].iloc[i-1], df['close'].iloc[i-1], 0, df['bid'].iloc[i-1], df['ask'].iloc[i-1], 0, 0
                         num_correction += 1
-            print('corrected ', num_correction, ' data.')
+            if num_correction > 0:
+                  print('corrected ', num_correction, ' data.')
             return df
 
 

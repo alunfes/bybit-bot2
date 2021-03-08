@@ -166,6 +166,10 @@ class RestAPI:
         return df
 
 
+    '''
+    onemin_bybit.csvの最新の日付以降のデータをtrading dataをAPI経由で取得してohlcv + buy/sell volに変換して、onemin_bybit.csvに追記する。
+    *この関数を実行する前に最新の日付までのtrading data（csv）をDownloadMarketDataでダウンロードしてonemin_bybit.csvに記録する。
+    '''
     @classmethod
     def update_onemin_data(cls):
         #check last datetime in OneMinData.csv
@@ -174,15 +178,67 @@ class RestAPI:
         print(latest_dt)
         #get trading data from the latest datetime using API
         df_trading = cls.get_public_trading_recoreds(latest_dt)
-        df_trading = df_trading.rename(columns={'qty': 'size'})
+        tick_df = df_trading.rename(columns={'qty': 'size', 'time': 'dt'})
+        tick_df.index = tick_df['dt']
+        print(tick_df.iloc[0:])
+        tick_df = tick_df.drop(columns=['symbol', 'id', 'dt'])
         print(df_trading.iloc[0:])
         #convert trading data to ohlcv + buy / sell vol
-        con_df = df_trading['price'].resample('1T').ohlc()
-        con_df = con_df.assign(size=df_trading['size'].resample('1T').sum())
-        con_df = con_df.reset_index().rename(columns={'index':'datetime'})
+        all_df = tick_df['price'].resample('1T').ohlc()
+        all_df = all_df.assign(size=tick_df['size'].resample('1T').sum())
+        buy_tmp_df = tick_df[tick_df['side'] == 'Buy']
+        buy_df = buy_tmp_df['price'].resample('1T').ohlc()
+        buy_df = buy_df.assign(size=buy_tmp_df['size'].resample('1T').sum())
+        sell_tmp_df = tick_df[tick_df['side'] == 'Sell']
+        sell_df = sell_tmp_df['price'].resample('1T').ohlc()
+        sell_df = sell_df.assign(size=sell_tmp_df['size'].resample('1T').sum())
+        bid = []
+        ask = []
+        #1分の間に1回もbuy/sellが無い場合があるので、数が一致しているか確認して、不一致がある場合には同じ時間のohlcvをsize=0として追加する。
+        if (len(all_df) == len(buy_df) == len(sell_df)) == False:
+            if len(all_df) != len(buy_df):
+                    #欠けているindexを特定して、size=0として追加する
+                    target_index = list( set(all_df.index) - set(buy_df.index))
+                    cop_df = all_df.loc[target_index]
+                    cop_df['size']=0
+                    con_df = pd.concat([buy_df, cop_df])
+                    con_df.sort_index()
+                    buy_df = con_df
+            if len(all_df) != len(sell_df):
+                    #欠けているindexを特定して、size=0として追加する
+                    target_index = list( set(all_df.index) - set(sell_df.index))
+                    cop_df = all_df.loc[target_index]
+                    cop_df['size']=0
+                    con_df = pd.concat([sell_df, cop_df])
+                    con_df.sort_index()
+                    sell_df = con_df
+        for i in range(len(all_df)): #calc bid ask
+            if all_df['close'].iloc[i] == buy_df['close'].iloc[i]:
+                    ask.append(all_df['close'].iloc[i])
+                    bid.append(all_df['close'].iloc[i] - 0.5)
+            else:
+                    bid.append(all_df['close'].iloc[i])
+                    ask.append(all_df['close'].iloc[i] + 0.5)
+        all_df['bid'] = bid
+        all_df['ask'] = ask
+        all_df['buy_vol'] = buy_df['size']
+        all_df['sell_vol'] = sell_df['size']
+        ohlcv_df = cls.__check_ohlc_data2(all_df)
+        ohlcv_df.index.name = 'dt'
         #add to OneMinData.csv
-        
+        ohlcv_df.to_csv('./Data/onemin_bybit.csv',  mode='a', header=False) #dt,open,high,low,close,size,bid,ask,buy_vol,sell_vol   2021-01-30 23:59:00
+        print('RestAPI: Added ', len(ohlcv_df), ' data to onemin_bybit.csv')
 
+        
+    @classmethod
+    def __check_ohlc_data2(cls, df):
+            num_correction = 0
+            for i in range(len(df)):
+                  if df['size'].iloc[i] == 0:
+                        df['open'].iloc[i], df['high'].iloc[i], df['low'].iloc[i], df['close'].iloc[i], df['size'].iloc[i], df['bid'].iloc[i], df['ask'].iloc[i], df['buy_vol'].iloc[i], df['sell_vol'].iloc[i]  = df['open'].iloc[i-1], df['high'].iloc[i-1], df['low'].iloc[i-1], df['close'].iloc[i-1], 0, df['bid'].iloc[i-1], df['ask'].iloc[i-1], 0, 0
+                        num_correction += 1
+            print('corrected ', num_correction, ' data.')
+            return df
 
     @classmethod
     def get_rate_limit_status(cls):
@@ -206,6 +262,64 @@ class RestAPI:
 
 
     @classmethod
+    def test(cls):
+        #check last datetime in OneMinData.csv
+        latest_dt = datetime.datetime.now() + datetime.timedelta(minutes=-10)
+        print(latest_dt)
+        #get trading data from the latest datetime using API
+        df_trading = cls.get_public_trading_recoreds(latest_dt)
+        tick_df = df_trading.rename(columns={'qty': 'size', 'time': 'dt'})
+        tick_df.index = tick_df['dt']
+        print(tick_df.iloc[0:])
+        tick_df = tick_df.drop(columns=['symbol', 'id', 'dt'])
+        print(df_trading.iloc[0:])
+        #convert trading data to ohlcv + buy / sell vol
+        all_df = tick_df['price'].resample('1T').ohlc()
+        all_df = all_df.assign(size=tick_df['size'].resample('1T').sum())
+        buy_tmp_df = tick_df[tick_df['side'] == 'Buy']
+        buy_df = buy_tmp_df['price'].resample('1T').ohlc()
+        buy_df = buy_df.assign(size=buy_tmp_df['size'].resample('1T').sum())
+        sell_tmp_df = tick_df[tick_df['side'] == 'Sell']
+        sell_df = sell_tmp_df['price'].resample('1T').ohlc()
+        sell_df = sell_df.assign(size=sell_tmp_df['size'].resample('1T').sum())
+        bid = []
+        ask = []
+        #1分の間に1回もbuy/sellが無い場合があるので、数が一致しているか確認して、不一致がある場合には同じ時間のohlcvをsize=0として追加する。
+        if (len(all_df) == len(buy_df) == len(sell_df)) == False:
+            if len(all_df) != len(buy_df):
+                    #欠けているindexを特定して、size=0として追加する
+                    target_index = list( set(all_df.index) - set(buy_df.index))
+                    cop_df = all_df.loc[target_index]
+                    cop_df['size']=0
+                    con_df = pd.concat([buy_df, cop_df])
+                    con_df.sort_index()
+                    buy_df = con_df
+            if len(all_df) != len(sell_df):
+                    #欠けているindexを特定して、size=0として追加する
+                    target_index = list( set(all_df.index) - set(sell_df.index))
+                    cop_df = all_df.loc[target_index]
+                    cop_df['size']=0
+                    con_df = pd.concat([sell_df, cop_df])
+                    con_df.sort_index()
+                    sell_df = con_df
+        for i in range(len(all_df)): #calc bid ask
+            if all_df['close'].iloc[i] == buy_df['close'].iloc[i]:
+                    ask.append(all_df['close'].iloc[i])
+                    bid.append(all_df['close'].iloc[i] - 0.5)
+            else:
+                    bid.append(all_df['close'].iloc[i])
+                    ask.append(all_df['close'].iloc[i] + 0.5)
+        all_df['bid'] = bid
+        all_df['ask'] = ask
+        all_df['buy_vol'] = buy_df['size']
+        all_df['sell_vol'] = sell_df['size']
+        ohlcv_df = cls.__check_ohlc_data2(all_df)
+        ohlcv_df.index.name = 'dt'
+        #add to OneMinData.csv
+        print(ohlcv_df.iloc[0:])
+        print('RestAPI: Added ', len(ohlcv_df), ' data to onemin_bybit.csv')
+
+    @classmethod
     def __ohlc_thread(cls):
         t = datetime.datetime.now().timestamp()
         cls.kijun_timestamp = int(t - (t - (t // 60.0) * 60.0))+ 60 #timestampの秒を次の分の0に修正
@@ -224,7 +338,7 @@ class RestAPI:
 
 
 if __name__ == '__main__':
-    RestAPI.update_onemin_data()
+    RestAPI.test()
     #ut = datetime.datetime.now().timestamp()
     #print(RestAPI.get_buysell_vol(datetime.datetime.fromtimestamp(ut)+ datetime.timedelta(hours=-500)))
     #print(RestAPI.get_public_trading_recoreds(datetime.datetime.now()+ datetime.timedelta(hours=-1)))
