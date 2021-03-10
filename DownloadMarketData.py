@@ -172,14 +172,24 @@ class DownloadMarketData:
 
       '''
       onemin_bybit.csvの最後の日付の翌日からのデータファイルを取得してohlcvとして追記する。
+      (最新データの時刻が59分以外の場合は、latest_dtをその日とする。)
       '''
       def update_ohlcv(self):
-            df = pd.read_csv('./Data/onemin_bybit.csv')
+            line_count = 0
+            with open('./Data/onemin_bybit.csv') as f:
+                  line_count = sum([1 for line in f])
+            df = pd.read_csv('./Data/onemin_bybit.csv', skiprows=range(1,line_count - 10))
+            print('DownloadMarketData: update_ohlc')
             latest_dt = datetime.datetime.strptime(df.iloc[-1]['dt'], '%Y-%m-%d %H:%M:%S')
+            print('latest_dt=', latest_dt)
             self.__check_downloaded_file()
             ohlcv_df = pd.DataFrame()
+            flg_ontheday = False #True:last_dt.minute != 59
             while True:
-                  latest_dt = latest_dt+datetime.timedelta(days=1)
+                  if latest_dt.minute == 59:
+                        latest_dt = latest_dt+datetime.timedelta(days=1)
+                  else:
+                        flg_ontheday = True      
                   target_file_name = 'BTCUSD' + str(latest_dt.year) + '-' + str(str(latest_dt.month).zfill(2)) + '-' + str(str(latest_dt.day).zfill(2)) + '.csv.gz' #BTCUSD2021-03-02.csv.gz
                   if target_file_name in self.downloaded_file:
                         tick_df = pd.read_csv('./Data/'+target_file_name, compression='gzip', index_col='timestamp')
@@ -193,6 +203,10 @@ class DownloadMarketData:
                         break
             ohlcv_df = self.__check_ohlc_data2(ohlcv_df)
             ohlcv_df.index.name = 'dt'
+            #最新データの時刻が59分以外の場合に、重複したデータを削除する
+            if flg_ontheday:
+                  ohlcv_df = ohlcv_df[ohlcv_df.index > latest_dt]
+            print('DownloadMarketData: ohlcv_df')
             ohlcv_df.to_csv('./Data/onemin_bybit.csv', mode='a', header=False, index=True)
             print('DonwloadMarketData: Completed update_ohlcv.')
       
@@ -215,6 +229,7 @@ class DownloadMarketData:
                         num_correction += 1
             if num_correction > 0:
                   print('corrected ', num_correction, ' data.')
+                  print(df.iloc[0:])
             return df
 
 
@@ -224,6 +239,7 @@ class DownloadMarketData:
                         return await loop.run_in_executor(None, self.download_file, 'https://public.bybit.com/trading/BTCUSD/' + str(f))
             tasks = [async_download_file(f) for f in self.target_file]
             return await asyncio.gather(*tasks)
+
 
 
 if __name__ == '__main__':

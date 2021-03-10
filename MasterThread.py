@@ -24,19 +24,23 @@ class MasterThread:
             print('4: Sim')
             select = str(input())
             if select == '1':
+                print('1: OHLCV data update')
                 dmd = DownloadMarketData()
                 dmd.download_all_targets_async(2017,1,2)
                 dmd.update_ohlcv()
                 RestAPI.update_onemin_data()
                 break
             elif select == '2':
+                print('2: MarketData test')
                 term_list = list(range(10, 1000, 100))
                 MarketData.initialize_for_bot(term_list)
                 break
             elif select == '3':
+                print('3: Bot test')
                 pass
                 break
             elif select == '4':
+                print('4: Sim')
                 pass
                 break
             else:
