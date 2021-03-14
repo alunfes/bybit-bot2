@@ -240,6 +240,24 @@ class Trade:
             return cloed_orders
 
 
+    @classmethod
+    def test_trade(cls):
+        LineNotification.initialize()
+        cls.initialize()
+        orders = cls.get_open_orders()
+        print(orders)
+        bid_ask = cls.get_bid_ask()
+        order_data = Trade.order('buy', bid_ask[0]- 1000, 'limit', 1000)
+        print('placed buy order')
+        print(order_data)
+        time.sleep(3)
+        print('cancel order')
+        cancel = cls.cancel_order(order_data['info']['order_id'])
+        print(cancel)
+        print('order data after cancelled')
+        print(cls.get_order_byid(order_data['info']['order_id']))
+        pass
+
 if __name__ == '__main__':
     LineNotification.initialize()
     Trade.initialize()

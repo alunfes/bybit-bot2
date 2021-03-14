@@ -4,330 +4,332 @@ import copy
 
 from SystemFlg import SystemFlg
 from Trade import Trade
+import pandas as pd
 
 '''
 Botとは完全に分離したAccount。
+
 '''
 class SimAccount:
-    @classmethod
-    def initialize(cls):
-        cls.taker_fee_ratio = 0.00075
-        cls.maker_fee_ratio = -0.00025
-        cls.__initialize_order_data()
-        cls.__initialize_holding_data()
-        cls.__initialize_performance_data()
-        cls.__initialize_trade_data()
+    def __init__(self):
+        self.__initialize_order()
+        self.__initialize_holding()
+
+        self.log_data_list = []
+        self.log_data_df = pd.DataFrame()
+        self.taker_fee = 0.00075
+        self.maker_fee = -0.00025
+
+        #performance data
+        self.total_pl = 0
+        self.total_pl_ratio = 0
+        self.realized_pl = 0
+        self.unrealized_pl = 0
+        self.unrealized_pl_list = []
+        self.total_fee = 0
+        self.num_trade = 0
+        self.num_sell = 0
+        self.num_buy = 0
+        self.num_win = 0
+        self.win_rate = 0
+        self.num_market_order = 0
+        self.sharp_ratio = 0
+        self.total_pl_list = []
+        self.total_pl_ratio_list = []
+        self.buy_pl_list = []
+        self.sell_pl_list = []
+        self.buy_pl_ratio_list = []
+        self.sell_pl_ratio_list = []
+
+        #log data
+        self.dt_log = []
+        self.i_log = []
+        self.order_log = []
+        self.holding_log = []
+        self.total_pl_log = []
+        self.action_log = []
+        self.price_log = []
+        self.performance_total_pl_log = []
+        self.performance_dt_log = []
+        self.pl_stability = 0
+        self.close_log = []
+
+        self.start_dt = ''
+        self.end_dt = ''
+        self.start_ind = 0
+        self.end_ind = 0
+
+        #order data
+    def __initialize_order(self):
+        self.order_serial_num = -1
+        self.order_serial_list = []
+        self.order_side ={}
+        self.order_price = {}
+        self.order_size = {}
+        self.order_i = {}
+        self.order_dt = {}
+        self.order_ut = {}
+        self.order_type = {}  # market / limit / limit-market (limit orderとしてentryして最初の1分で約定しなかったらmarket orderにする）
+        self.order_cancel = {} #True / False
+        self.order_message = {} #//entry, pt, exit&entry, update
 
 
-    @classmethod
-    def __initialize_order_data(cls):
-        cls.lock_order = threading.Lock()
-        cls.order_serial_num = 0
-        cls.order_serial_list = []
-        cls.order_side = {}
-        cls.order_price = {}
-        cls.order_size = {}
-        cls.order_type = {}
-        cls.order_dt = {}
-        cls.order_i= {}
-        cls.order_message = {}
-        cls.order_cancel = {}
-
-    @classmethod
-    def __initialize_holding_data(cls):
-        cls.lock_holding = threading.Lock()
-        cls.holding_side = ''
-        cls.holding_size = 0
-        cls.holding_price = 0
-        cls.holding_i = 0
-        cls.holding_period = 0
-
-    @classmethod
-    def __initialize_performance_data(cls):
-        cls.lock_performance = threading.Lock()
-        cls.total_pl = 0
-        cls.total_pl_list = []
-        cls.realized_pl = 0
-        cls.unrealized_pl = 0
-        cls.total_fee = 0
-        cls.num_trade = 0
-        cls.num_sell = 0
-        cls.num_buy = 0
-        cls.num_win = 0
-        cls.win_rate = 0
-        cls.num_market_order = 0
-        cls.sharp_ratio = 0
-
-    @classmethod
-    def __initialize_trade_data(cls):
-        cls.lock_trade = threading.Lock()
-        cls.trade_log = {} #{i, [trade_log]}
-
-
-
-    '''
-    should be called only by Sim when ohlc is updated
-    '''
-    @classmethod
-    def ohlc_update(cls, i, ohlc): #ohlc = {'dt', 'open', 'high', 'low', 'close', 'divergence_scaled'}
-        #check & process execution
-        cls.__check_cancel(i)
-        cls.__check_execution(i, ohlc['open'], ohlc['high'], ohlc['low'])
-        #update pl / holding period
-        holding_data = cls.get_holding_data()
-        if holding_data['side'] != '':
-            with cls.lock_performance:
-                cls.unrealized_pl = (ohlc['close'] - holding_data['price']) * holding_data['size'] if holding_data['side'] == 'buy' else (holding_data['price'] - ohlc['close']) * holding_data['size']
-            with cls.lock_holding:
-                cls.holding_period = i - cls.holding_i #int( (datetime.datetime.now().timestamp - cls.holding_timestamp) / 60.0)
+    def getLastOrderSide(self):
+        if (len(self.order_serial_list) > 0):
+            return self.order_side[self.order_serial_list[-1]]
         else:
-            with cls.lock_performance:
-                cls.unrealized_pl = 0
-        with cls.lock_performance:
-            cls.total_pl= cls.unrealized_pl + cls.realized_pl - cls.total_fee
-            cls.total_pl_list.append(cls.total_pl)
-            if cls.num_trade > 0:
-                cls.win_rate = round(float(cls.num_win) / float(cls.num_trade), 4)
-        cls.__add_trade_log(i,'')
-        #print('SimAccount: ', 'total_pl=', cls.total_pl, ', num trade=', cls.num_trade, ', win rate=', cls.win_rate)
-        #print('Sim Holding Data: ', cls.get_holding_data())
-        #print('Sim Order Data: ', cls.get_order_data())
+            return ''
+
+    def getLastOrderSize(self):
+        if (len(self.order_serial_list) > 0):
+            return self.order_size[self.order_serial_list[-1]]
+        else:
+            return ''
+
+
+    def getLastOrderPrice(self):
+        if (len(self.order_serial_list) > 0):
+            return self.order_price[self.order_serial_list[-1]]
+        else:
+            return ''
+
+    def getLastSerialNum(self):
+        if (len(self.order_serial_list) > 0):
+            return self.order_serial_list[-1]
+        else:
+            return -1
+
+
+        #holding data
+    def __initialize_holding(self):
+        self.holding_side = ''
+        self.holding_price = 0
+        self.holding_size = 0
+        self.holding_i = 0
+        self.holding_period = 0
+        self.holding_dt = ''
+        self.holding_ut = 0
+
+
+    def __update_holding(self, side, price, size, i, dt):
+        self.holding_side = side
+        self.holding_price = price
+        self.holding_size = size
+        self.holding_i = i
+        self.holding_dt = dt
+        self.holding_period = 0
+
+    def calc_sharp_ratio(self):
+        change = np.diff(np.array(self.performance_total_pl_log))
+        self.sharp_ratio = self.total_pl / np.std(change)
 
     
-    @classmethod
-    def entry_order(cls, i, side, price, size, dt, otype, message):
-        with cls.lock_order:
-            if otype == 'market' or otype=='limit':
-                cls.order_side[cls.order_serial_num] = side
-                cls.order_price[cls.order_serial_num] = price
-                cls.order_size[cls.order_serial_num] = size
-                cls.order_type[cls.order_serial_num] = otype
-                cls.order_dt[cls.order_serial_num] = dt
-                cls.order_i[cls.order_serial_num] = i
-                cls.order_message[cls.order_serial_num] = message
-                cls.order_cancel[cls.order_serial_num] = False
-                cls.order_serial_list.append(cls.order_serial_num)
-                cls.order_serial_num += 1
-            else:
-                print('SimAccount-entry_order: Invalid order type !', otype)
-                cls.__add_trade_log(i, 'Entry '+side + ' @ '+str(price)+' x ' +str(size))
+    def move_to_next(self, i, dt, openp, high, low, close):
+        if len(str(self.start_dt)) < 3:
+            self.start_dt = dt
+        if self.start_ind == 0:
+            self.start_ind = i
+        self.end_ind = i
+        self.__check_cancel(i, dt)
+        self.__check_execution(i, dt, openp, high, low)
+        self.holding_period = i - self.holding_i if self.holding_i > 0 else 0
 
-    @classmethod
-    def __add_trade_log(cls, i, log_data):
-        with cls.lock_trade:
-            if i not in cls.trade_log:
-                cls.trade_log[i] = []
-                cls.trade_log[i].append(log_data)
-            else:
-                cls.trade_log[i].append(log_data)
-
-
-    @classmethod
-    def get_all_trade_log(cls):
-        with cls.lock_trade:
-            return cls.trade_log
-
-
-    @classmethod
-    def get_latest_trade_log(cls):
-        with cls.lock_trade:
-            if len(cls.trade_log) > 0:
-                target_key = max(list(cls.trade_log.keys()))
-                return cls.trade_log[target_key]
-            else:
-                return []
-
-
-    @classmethod
-    def get_order_data(cls):
-        with cls.lock_order:
-            orders = []
-            for oid in cls.order_serial_list:
-                orders.append({'id':oid, 'side':cls.order_side[oid], 'price':cls.order_price[oid], 'size':cls.order_size[oid],
-            'type':cls.order_type[oid], 'dt':cls.order_dt[oid], 'message':cls.order_message[oid], 'cancel':cls.order_cancel[oid]})
-            return orders
-
-
-    @classmethod
-    def getNumOrders(cls):
-        with cls.lock_order:
-            return len(cls.order_serial_list)
-
-
-    @classmethod
-    def getLastOrderSide(cls):
-        with cls.lock_order:
-            if (len(cls.order_serial_list) > 0):
-                return cls.order_side[cls.order_serial_list[-1]]
-            else:
-                return ''
-
-
-    @classmethod
-    def getLastOrderSize(cls):
-        with cls.lock_order:
-            if (len(cls.order_serial_list) > 0):
-                return cls.order_size[cls.order_serial_list[-1]]
-            else:
-                return ''
-
-
-    @classmethod
-    def getLastOrderPrice(cls):
-        with cls.lock_order:
-            if (len(cls.order_serial_list) > 0):
-                return cls.order_price[cls.order_serial_list[-1]]
-            else:
-                return ''
-
-    @classmethod
-    def getLastSerialNum(cls):
-        with cls.lock_order:
-            if (len(cls.order_serial_list) > 0):
-                return cls.order_serial_list[-1]
-            else:
-                return -1
-
-
-    @classmethod
-    def update_order_price(cls, i, oid, update_price):
-        with cls.lock_order:
-            if cls.order_side[oid] == 'buy' and cls.order_price[oid] > update_price:
-                print('buy price update issue: ', cls.order_price[oid], ' -> ', update_price)
-                cls.__add_trade_log(i, 'buy price update issue: '+ str(cls.order_price[oid]) + ' -> ' + str(update_price))
-            if cls.order_side[oid] == 'sell' and cls.order_price[oid] < update_price:
-                print('sell price update issue: ', cls.order_price[oid], ' -> ', update_price)
-                cls.__add_trade_log(i, 'sell price update issue: '+ str(cls.order_price[oid]) + ' -> ' + str(update_price))
-            if update_price > 0 and cls.order_side[oid] != '':
-                cls.__add_trade_log(i, 'Updated order price: '+ str(cls.order_price[oid]) + ' -> ' + str(update_price))
-                cls.order_price[oid] = update_price
-                
-
-    @classmethod
-    def cancel_order(cls, i, oid):
-        if cls.order_side[oid] != '':
-            cls.order_cancel[oid] = True
-            cls.__add_trade_log(i, 'Cancelling order-'+str(oid)+': '+cls.order_side[oid]+' @ '+str(cls.order_price[oid]))
+        if self.holding_side != '':
+            self.unrealized_pl = (close - self.holding_price) * self.holding_size if self.holding_side == 'buy' else (self.holding_price - close) * self.holding_size
+            self.unrealized_pl_list.append(self.unrealized_pl)
         else:
-            print('SimAccount-cancel_order: order is not exist !')
+            self.unrealized_pl = 0
+            self.unrealized_pl_list = []
 
-    @classmethod
-    def cancel_all_order(cls, i):
-        for oid in cls.order_serial_list:
-            cls.cancel_order(i, oid)
-
-    @classmethod
-    def get_holding_data(cls):
-        with cls.lock_holding:
-            return {'side':cls.holding_side, 'size':cls.holding_size, 'price':cls.holding_price, 'i':cls.holding_i, 'period':cls.holding_period}
-
-    @classmethod
-    def __update_holding(cls, side, price, size, i, period):
-        with cls.lock_holding:
-            cls.holding_side = side
-            cls.holding_size = size
-            cls.holding_price = price
-            cls.holding_i = i
-            cls.holding_period = period
+        self.total_pl = self.realized_pl + self.unrealized_pl - self.total_fee
+        self.total_pl_ratio = self.total_pl / close
+        if self.num_trade > 0:
+            self.win_rate = round(float(self.num_win) / float(self.num_trade), 4)
+        self.performance_total_pl_log.append(self.total_pl)
+        self.performance_dt_log.append(dt)
+        self.price_log.append(close)
+        self.__add_log('i:'+str(i)+' Move to next', i, dt)
+        self.close_log.append(close)
+        self.total_pl_list.append(self.total_pl)
+        self.total_pl_ratio_list.append(self.total_pl_ratio)
 
 
-    @classmethod
-    def get_performance_data(cls):
-        with cls.lock_performance:
-            return {'total_pl':cls.total_pl, 'realized_pl':cls.realized_pl, 'unrealized_pl':cls.unrealized_pl, 'total_fee':cls.total_fee, 'num_trade':cls.num_trade, 'win_rate':cls.win_rate}
+    def entry_order(self, order_type, side, size, price, i, dt, message):
+        if size > 0 and (side == 'buy' or side == 'sell'):
+            self.order_serial_num += 1
+            self.order_serial_list.append(self.order_serial_num)
+            self.order_type[self.order_serial_num] = order_type  # limit, market
+            self.order_side[self.order_serial_num] =side
+            self.order_price[self.order_serial_num] = price
+            self.order_size[self.order_serial_num] = size
+            self.order_i[self.order_serial_num] = i
+            self.order_dt[self.order_serial_num] = dt
+            self.order_ut[self.order_serial_num] = 0
+            self.order_cancel[self.order_serial_num] = False
+            self.order_message[self.order_serial_num] = message
+            self.__add_log('entry order' + side + ' type=' + order_type, i, dt)
+        else:
+            print('entry order failed due to max order error !s', i, dt)
+            self.__add_log('entry order failed due to max order error !s', i, dt)
 
 
-    @classmethod
-    def __calc_fee(cls, size, price, maker_taker):
+    def update_order_price(self, update_price, order_serial_num, i, dt):
+        if self.getLastOrderSide() == 'buy' and self.getLastOrderPrice() > update_price:
+            print(i, ': buy price update issue: ', self.getLastOrderPrice(), ' -> ', update_price)
+        if self.getLastOrderSide() == 'sell' and self.getLastOrderPrice() < update_price:
+            print(i, ': sell price update issue: ', self.getLastOrderPrice(), ' -> ', update_price)
+
+        if update_price > 0 and order_serial_num in self.order_serial_list:
+            self.order_price[order_serial_num] = update_price
+            self.__add_log('updated order price', i, dt)
+        else:
+            print('invalid update price or order_serial_num in update_order_price !')
+
+    
+    def update_order_amount(self, update_amount, order_serial_num, message, i, dt):
+        if update_amount > 0 and order_serial_num in self.order_serial_list:
+            self.order_size[order_serial_num] = update_amount
+            self.order_message[order_serial_num] = message #partially_executed
+            self.__add_log('updated order amount', i, dt)
+        else:
+            print('invalid update amount or order_serial_num in update_order_amount !')
+
+
+    def __del_order(self, target_serial, i):
+        if target_serial in self.order_serial_list:
+            self.order_serial_list.remove(target_serial)
+            del self.order_side[target_serial]
+            del self.order_price[target_serial]
+            del self.order_size[target_serial]
+            del self.order_i[target_serial]
+            del self.order_dt[target_serial]
+            del self.order_ut[target_serial]
+            del self.order_type[target_serial]  # market / limit
+            del self.order_cancel[target_serial] #True / False
+            del self.order_message[target_serial]
+
+
+    #always cancel latest order
+    def cancel_order(self, order_serial_num, i, dt):
+        if len(self.order_serial_list) > 0:
+            if order_serial_num in self.order_serial_list:
+                if self.order_cancel[order_serial_num] == False:
+                    self.order_cancel[order_serial_num] = True
+                else:
+                    print('cancel failed!')
+
+
+    def cancel_all_order(self, i, dt):
+        for n in self.order_serial_list:
+            self.cancel_order(n, i, dt)
+
+
+    def exit_all(self, i, dt):
+        if self.holding_side != '':
+            self.entry_order('market', 'buy' if self.holding_side == 'sell' else 'sell', self.holding_size, 0, i, dt, 'exit all')
+
+
+
+    def __calc_fee(self, size, price, maker_taker):
         if maker_taker == 'maker':
-            cls.total_fee += size * price * cls.maker_fee_ratio
+            self.total_fee += size * price * self.maker_fee
         elif maker_taker == 'taker':
-            cls.total_fee += size * price * cls.taker_fee_ratio
+            self.total_fee += size * price * self.taker_fee
         else:
             print('unknown maker_taker type!', maker_taker)
             pass
-        
-    @classmethod
-    def __check_cancel(cls, i):
-        ks = copy.copy(cls.order_serial_list)
+
+
+
+    def __check_cancel(self, i, dt):
+        #ks = copy.copy(list(self.order_cancel.keys()))
+        ks = copy.copy(self.order_serial_list)
         for k in ks:
-            if cls.order_cancel[k]==True:
-                #print('Order Cancelled-', k, ': ', cls.order_side[k], ' @ ', cls.order_price[k])
-                cls.__add_trade_log(i, 'Order Cancelled-'+str(k)+': '+str(cls.order_side[k])+' @ '+str(cls.order_price[k]))
-                cls.__del_order(k)
+            if self.order_cancel[k]:
+                self.__del_order(k, i)
+                self.__add_log('order cancelled.', i, dt)
 
 
-    @classmethod
-    def __del_order(cls, oid):
-        with cls.lock_order:
-            if oid in cls.order_serial_list:
-                cls.order_serial_list.remove(oid)
-            del cls.order_side[oid]
-            del cls.order_price[oid]
-            del cls.order_size[oid]
-            del cls.order_i[oid]
-            del cls.order_dt[oid]
-            del cls.order_type[oid]  # market / limit
-            del cls.order_cancel[oid] #True / False
-            del cls.order_message[oid]
-
-
-    @classmethod
-    def __check_execution(cls, i, openp, high, low):
-        ks = copy.copy(cls.order_serial_list)
+    def __check_execution(self, i, dt, openp, high, low):
+        ks = copy.copy(self.order_serial_list)
         for k in ks:
-            if cls.order_type[k] == "market":
-                cls.num_market_order +=1
-                cls.__process_execution(openp, i, k)
-                cls.__del_order(k)
-            elif cls.order_i[k] < i:
-                if cls.order_type[k] == 'limit' and (cls.order_side[k] =='buy' and cls.order_price[k] > low) or (cls.order_side[k] =='sell' and cls.order_price[k] < high):
-                    cls.__process_execution(cls.order_price[k], i, k)
-                    cls.__del_order(k)
+            if self.order_type[k] == 'market':
+                self.num_market_order +=1
+                self.__process_execution(openp, k, i, dt)
+                self.__del_order(k, i)
+            elif self.order_i[k] < i:
+                if self.order_type[k] == 'limit' and (self.order_side[k]=='buy' and self.order_price[k] >= low+0.5) or (self.order_side[k]=='sell' and self.order_price[k] <= high-0.5):
+                    self.__process_execution(self.order_price[k], k, i, dt)
+                    self.__del_order(k, i)
             else:
                 pass
 
 
-
-    @classmethod
-    def __process_execution(cls, exec_price, i, k):
-        cls.__calc_fee(cls.order_size[k], exec_price, 'maker' if cls.order_type[k] == 'limit' else 'taker')
-        if cls.holding_side == '':
-            cls.__update_holding(cls.order_side[k], exec_price, cls.order_size[k], i, 0) #side, price, size, i, period
-            #print('Sim New Entry: ', cls.order_side[k] + ' @', exec_price, ' x ', cls.order_size[k])
-            cls.__add_trade_log(i, 'Executed New Entry: '+cls.order_side[k] + ' @'+ str(exec_price)+ ' x '+str(cls.order_size[k]))
-        elif cls.holding_side == cls.order_side[k]:
-            ave_price = round(((cls.holding_price * cls.holding_size) + (exec_price * cls.order_size[k])) / (cls.order_size[k] + cls.holding_size))  # averaged holding price
-            cls.__update_holding(cls.holding_side, ave_price, cls.order_size[k] + cls.holding_size, i, cls.holding_period) #side, price, size, i, period
-            #print('Sim Additional Entry: ', cls.order_side[k] + ' @', exec_price, ' x ', cls.order_size[k])
-            cls.__add_trade_log(i, 'Executed Additional Entry: '+cls.order_side[k] + ' @'+str(exec_price)+ ' x '+str(cls.order_size[k]))
-        elif cls.holding_size > cls.order_size[k]:
-            cls.__calc_executed_pl(exec_price, cls.order_size[k], i)
-            cls.__update_holding(cls.holding_side, cls.holding_price, cls.holding_size - cls.order_size[k], i, cls.holding_period)
-            #print('Sim Partial Exit: ', cls.order_side[k] + ' @', exec_price, ' x ', cls.order_size[k])
-            cls.__add_trade_log(i, 'Executed Partial Exit: '+cls.order_side[k] + ' @'+str(exec_price)+ ' x '+str(cls.order_size[k]))
-        elif cls.holding_size == cls.order_size[k]:
-            cls.__calc_executed_pl(exec_price, cls.order_size[k], i)
-            cls.__initialize_holding_data()
-            #print('Sim All Exit: ', cls.order_side[k] + ' @', exec_price, ' x ', cls.order_size[k])
-            cls.__add_trade_log(i, 'Executed All Exit: '+cls.order_side[k] + ' @'+str(exec_price)+ ' x '+str(cls.order_size[k]))
-        elif cls.holding_size < cls.order_size[k]:
-            cls.__calc_executed_pl(exec_price, cls.holding_size, i)
-            cls.__update_holding(cls.order_side[k], exec_price, cls.order_size[k] - cls.holding_size, i, 0)
-            #print('Sim Opposite Side Entry: ', cls.order_side[k] + ' @', exec_price, ' x ', cls.order_size[k])
-            cls.__add_trade_log(i, 'Executed Opposide Side Entry: '+cls.order_side[k] + ' @'+str(exec_price)+ ' x '+str(cls.order_size[k]))
-        else:
-            #print('SimAccount-process_execution: Match with no conditions !')
-            cls.__add_trade_log(i, 'SimAccount-process_execution: Match with no conditions !: '+cls.order_side[k] + ' @'+str(exec_price)+ ' x '+str(cls.order_size[k]))
+    def __process_execution(self, exec_price, k ,i, dt):
+        self.__calc_fee(self.order_size[k], exec_price, 'maker' if self.order_type[k] == 'limit' else 'taker')
+        if self.holding_side == "":
+            if self.order_side[k] == 'buy':
+                self.num_buy += 1
+            else:
+                self.num_sell += 1
+            self.__update_holding(self.order_side[k], exec_price, self.order_size[k], i, dt)
+            self.__add_log('New Entry:' + self.order_type[k], i, dt)
+        elif self.holding_side == self.order_side[k]:
+            ave_price = round(((self.holding_price * self.holding_size) + (exec_price * self.order_size[k])) / (self.order_size[k] + self.holding_size), 1)  # averaged holding price
+            self.__update_holding(self.holding_side, ave_price, self.order_size[k] + self.holding_size, i, dt)
+            self.__add_log('Additional Entry:' + self.order_type[k], i, dt)
+        elif self.holding_size > self.order_size[k]:
+            self.__calc_executed_pl(exec_price, self.order_size[k], i)
+            self.__update_holding(self.holding_side, self.holding_price, self.holding_size - self.order_size[k], i, dt)
+            self.__add_log('Exit Order (h>o):' + self.order_type[k], i, dt)
+        elif self.holding_size == self.order_size[k]:
+            self.__calc_executed_pl(exec_price, self.order_size[k], i)
+            self.__initialize_holding()
+            self.__add_log('Exit Order (h=o):' + self.order_type[k], i, dt)
+        elif self.holding_size < self.order_size[k]:
+            if self.order_side[k] == 'buy':
+                self.num_buy += 1
+            else:
+                self.num_sell += 1
+            self.__calc_executed_pl(exec_price, self.holding_size, i)
+            self.__update_holding(self.order_side[k], exec_price, self.order_size[k] - self.holding_size, i, dt)
+            self.__add_log('Exit and Entry Order (h<o):' + self.order_type[k], i, dt)
 
 
-    @classmethod
-    def __calc_executed_pl(cls, exec_price, size, i):  # assume all order size was executed
-        pl = (exec_price - cls.holding_price) * size if cls.holding_side == 'buy' else (cls.holding_price - exec_price) * size
-        cls.realized_pl += round(pl,6)
-        cls.num_trade += 1
+    def __calc_executed_pl(self, exec_price, size, i):  # assume all order size was executed
+        pl = (exec_price - self.holding_price) * size if self.holding_side == 'buy' else (self.holding_price - exec_price) * size
+        self.realized_pl += round(pl,6)
+        self.unrealized_pl_list.append(round(pl,6))
+        self.num_trade += 1
         if pl > 0:
-            cls.num_win += 1
+            self.num_win += 1
+        if self.holding_side == 'buy':
+            self.buy_pl_list.append(round(pl,6))
+        else:
+            self.sell_pl_list.append(round(pl,6))
+
+
+    def __add_log(self, log, i, dt):
+        self.total_pl_log.append(self.total_pl)
+        self.action_log.append(log)
+        self.holding_log.append(self.holding_side + ' @' + str(self.holding_price) + ' x' + str(self.holding_size))
+        if len(self.order_i) > 0:
+            k = self.order_serial_list[-1]
+            self.order_log.append(self.order_side[k] + ' @' + str(self.order_price[k]) + ' x' + str(self.order_size[k]) + ' cancel=' + str(self.order_cancel[k]) + ' type=' + self.order_type[k])
+        else:
+            self.order_log.append('' + ' @' + '0' + ' x' + '0' + ' cancel=' + 'False' + ' type=' + '')
+        self.i_log.append(i)
+        self.dt_log.append(dt)
+        if len(self.order_serial_list) > 0: 
+            k=self.order_serial_list[-1]
+            #print('i={}, dt={}, action={}, holding side={}, holding price={}, holding size={}, order side={}, order price={}, order size={}, pl={}, num_trade={}'
+            #.format(i, dt, log, self.holding_side, self.holding_price, self.holding_size, self.order_side[k], self.order_price[k], self.order_size[k], self.total_pl, self.num_trade))
+            self.log_data_list.append({'i':i, 'dt':dt, 'action':log, 'holding_side':self.holding_side,'holding_price':self.holding_price, 'holding_size':self.holding_size, 'order_side':self.order_side[k], 'order_price':self.order_price[k],
+                                       'order_size':self.order_size[k], 'total_pl':self.total_pl, 'total_fee':self.total_fee, 'num_trade':self.num_trade})
+        else:
+            #print(';i={}, dt={}, action={}, holding side={}, holding price={}, holding size={}, order side={}, order price={}, order size={}, pl={}, num_trade={}'.format(i, dt, log, self.holding_side, self.holding_price, self.holding_size, '', '0', '0', self.total_pl, self.num_trade))
+            self.log_data_list.append({'i':i, 'dt':dt, 'action':log, 'holding_side':self.holding_side, 'holding_price':self.holding_price, 'holding_size':self.holding_size, 'order_side':0, 'order_price':0, 
+                                       'order_size':0, 'total_pl':self.total_pl, 'total_fee':self.total_fee, 'num_trade':self.num_trade})
 
 
 if __name__ == '__main__':

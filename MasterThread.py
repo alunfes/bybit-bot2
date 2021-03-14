@@ -22,6 +22,8 @@ class MasterThread:
             print('2: MarketData test')
             print('3: Bot test')
             print('4: Sim')
+            print('5: WS Test')
+            print('6: Trade Test')
             select = str(input())
             if select == '1':
                 print('1: OHLCV data update')
@@ -42,6 +44,14 @@ class MasterThread:
             elif select == '4':
                 print('4: Sim')
                 pass
+                break
+            elif select == '5':
+                print('5: WS Test')
+                pass
+                break
+            elif select == '6':
+                print('6: Trade Test')
+                Trade.test_trade()
                 break
             else:
                 pass       

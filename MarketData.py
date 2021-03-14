@@ -8,7 +8,6 @@ from sklearn.preprocessing import MinMaxScaler
 from SystemFlg import SystemFlg
 from RestAPI import RestAPI
 from Gene import Gene
-from NNInputDataGenerator import NNInputDataGenerator
 from NN import NN
 from DownloadMarketData import DownloadMarketData
 

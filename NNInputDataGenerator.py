@@ -1,124 +1,84 @@
 import numpy as np
-from SimAccount import SimAccount
+from MarketData import MarketData
+
 
 
 class NNInputDataGenerator:
-    def generate_nn_input_data_limit_bot(self, divergence_scaled, order_data, holding_data, performance_data):
+    def generate_nn_input_data_limit(self, ac, i, index):
         #ma divergence
-        input_data = np.array(divergence_scaled).T.tolist()
-
-        if order_data['side'] != '':
-            if order_data['side'] == 'buy':
-                input_data.append(0)
-                input_data.append(1)
-                input_data.append(0)
-            elif order_data['side'] == 'sell':
-                input_data.append(0)
-                input_data.append(0)
-                input_data.append(1)
-            else:
-                print('Unknown order side! ', order_data['side'])
-                input_data.append(0)
-                input_data.append(0)
-                input_data.append(0)
-        else:
-            input_data.append(0)
-            input_data.append(0)
-            input_data.append(0)
-
-        if holding_data['side'] =='buy':
-            input_data.append(0)
-            input_data.append(1)
-            input_data.append(0)
-        elif holding_data['side'] =='sell':
-            input_data.append(0)
-            input_data.append(0)
-            input_data.append(1)
-        else:
-            input_data.append(1)
-            input_data.append(0)
-            input_data.append(0)
-
-        #//ac pl, 損益率を2unitにわけて表現する
-        if performance_data['unrealized_pl'] == 0:
-            input_data.append(0)
-            input_data.append(0)
-        elif performance_data['unrealized_pl'] > 0:
-            input_data.append( (performance_data['unrealized_pl'] / holding_data['size']) / holding_data['price'])
-            input_data.append(0)
-        else:
-            input_data.append(0)
-            input_data.append(-1.0 * (performance_data['unrealized_pl'] / holding_data['size']) / holding_data['price'])
-        
-        #holding period
-        if holding_data['period'] == 0:
-            input_data.append(-1)
-        else:
-            input_data.append(1.0 / holding_data['period'])
-        
-        #unrealized pl / holding period
-        if holding_data['period'] ==0:
-            input_data.append(0)
-        else:
-            input_data.append(performance_data['unrealized_pl'] / holding_data['period'])
-        return input_data
-    
-    
-    def generate_nn_input_data_limit_sim(self, divergence_scaled, vola_kyori_scaled, vol_ma_divergence_scaled):
-        holding_data = SimAccount.get_holding_data()
-        performance_data = SimAccount.get_performance_data()
-
-        #ma divergence
-        input_data = np.array(divergence_scaled).T.tolist()
-
-        #vola kyori
-        input_data.extend(np.array(vola_kyori_scaled).T.tolist())
-
-        #volume ma divergence
-        input_data.extend(np.array(vol_ma_divergence_scaled).T.tolist())
+        input_data = []
+        if index[0] == 1:
+            for key in MarketData.ohlc.divergence_scaled.keys():
+                input_data.append(MarketData.ohlc.divergence_scaled[key].iloc[i])
+        if index[1] == 1:
+            for key in MarketData.ohlc.vola_kyori_scaled.keys():
+                input_data.append(MarketData.ohlc.vola_kyori_scaled[key].iloc[i])
+        if index[2] == 1:
+            for key in MarketData.ohlc.vol_ma_divergence_scaled.keys():
+                input_data.append(MarketData.ohlc.vol_ma_divergence_scaled[key].iloc[i])
+        if index[3] == 1:
+            for key in MarketData.ohlc.buysell_vol_ratio_scaled.keys():
+                input_data.append(MarketData.ohlc.buysell_vol_ratio_scaled[key].iloc[i])
+        if index[4] == 1:
+            for key in MarketData.ohlc.rsi_scaled.keys():
+                input_data.append(MarketData.ohlc.rsi_scaled[key].iloc[i])
+        if index[5] == 1:
+            for key in MarketData.ohlc.uwahige_scaled.keys():
+                input_data.append(MarketData.ohlc.uwahige_scaled[key].iloc[i])
+        if index[6] == 1:
+            for key in MarketData.ohlc.shitahige_scaled.keys():
+                input_data.append(MarketData.ohlc.shitahige_scaled[key].iloc[i])
+        if np.nan in input_data:
+                print("NNInputDataGenerator: Nan is included !")
 
         #order side
-        if SimAccount.getNumOrders() > 0:
-            if SimAccount.getLastOrderSide() == 'buy':
+        if len(ac.order_side) > 0:
+            if ac.getLastOrderSide()=="buy":
                 input_data.append(1)
                 input_data.append(0)
-            elif SimAccount.getLastOrderSide() == 'sell':
+            elif ac.getLastOrderSide() == "sell":
                 input_data.append(0)
                 input_data.append(1)
             else:
-                print('Unknown order side! ', SimAccount.getLastOrderSide())
+                print("Unknown order side! " + ac.order_side[ac.order_serial_list[0]])
                 input_data.append(0)
                 input_data.append(0)
         else:
             input_data.append(0)
             input_data.append(0)
-
+        
         #holding side
-        if holding_data['side'] =='buy':
-            input_data.append(0)
+        if ac.holding_side == "buy":
             input_data.append(1)
-        elif holding_data['side'] =='sell':
+            input_data.append(0)
+        elif ac.holding_side == "sell":
             input_data.append(0)
             input_data.append(1)
         else:
             input_data.append(0)
             input_data.append(0)
 
-        #//ac pl, 損益率を2unitにわけて表現する
-        if performance_data['unrealized_pl'] == 0:
-            input_data.append(0)
-        else:
-            input_data.append((performance_data['unrealized_pl'] / holding_data['size']) / holding_data['price'])
-        
+        #holding size
+        max_amount = 3
+        for j in range(max_amount):
+            if ac.holding_size > j:
+                input_data.append(1)
+            else:
+                input_data.append(0)
+
+        #ac pl, 損益率を表現する
+        pl_ratio = 100.0 * (ac.unrealized_pl / ac.holding_size) / (ac.holding_price) if ac.holding_size > 0 else 0
+        for j in range(1, 21):
+            if pl_ratio >= -20 + (j * 2.0):
+                input_data.append(1)
+            else:
+                input_data.append(0)
+
         #holding period
-        if holding_data['period'] == 0:
-            input_data.append(1.0)
-        else:
-            input_data.append(1.0 / holding_data['period'])
-        
-        #unrealized pl / holding period
-        if holding_data['period'] ==0:
-            input_data.append(0)
-        else:
-            input_data.append(performance_data['unrealized_pl'] / holding_data['period'])
+        for j in range(1, 21):
+            if ac.holding_period >= j*10:
+                input_data.append(1)
+            else:
+                input_data.append(0)
+        print(input_data)
         return input_data

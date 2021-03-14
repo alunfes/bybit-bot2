@@ -1,5 +1,6 @@
 import time
 import threading
+import datetime
 
 from SystemFlg import SystemFlg
 from PrivateWS import PrivateWS, PrivateWSData
@@ -8,20 +9,39 @@ from Trade import Trade
 from LineNotification import LineNotification
 
 '''
-約定処理について：
+約定処理：
+Orderが存在しているときは別のthreadを走らせそこで0.5sec毎にRestAPI経由で約定確認する。
+--Limit Orderの場合--
 Partial Executedでもholdingは即時に反映させる。
-realized pl / 
+leaves_qtyの変化分を追加約定として処理
+cum_exec_feeの変化分を追加feeとして処理 (Δcum_exec_fee * btc price)
+--Market Orderの場合--
+order_status = filledになった時点の情報で約定を処理する。
+
+Order: 
+新規OrderはBotから情報をもらうことで更新する。cancel / updateは全てRestAPIからの情報をもとに更新。
+
+Holding:
+約定処理をもとに自動で更新。
+
+Num Trade, Num_Win:
+Filled, Partially Filledの後にCancelledのときのみカウントすべき。
+同時にnum_winもカウントすることになるので、calc_plで対象の場合にのみカウントするようにする。
 '''
 
 '''
 ・Botからのorder idを受けて、Tradeのget order info by idで確認し、約定処理等行う。
 ・約定処理はpartial executedでもholding / orderを即時更新するが、最終的にorder_status=Filled / Cancelledになった時点で
-・全てLimit orderを想定（板にぶつけてしまい結果としてmarket orderとなった場合も適切に対処）
+
+
+NNInputData:
+実際のorder / holding / plなどを反映したBotAccountをNNInput用にtransformする。
 '''
 class BotAccount:
     @classmethod
     def initialize(cls):
         #pws = PrivateWS()
+        cls.__initialize_params()
         cls.__initialize_order_data()
         cls.__initialize_holding_data()
         cls.__initialize_performance_data()
@@ -29,6 +49,10 @@ class BotAccount:
         #th = threading.Thread(target=cls.__account_thread)
         #th.start()
 
+
+    @classmethod
+    def __initialize_params(cls):
+        cls.checl_exec_thread_sleep = 0.5
 
     @classmethod
     def __initialize_order_data(cls):
@@ -40,6 +64,7 @@ class BotAccount:
         cls.order_leaves_qty = {}
         cls.order_type = {} #Limit, Market
         cls.order_dt = {}
+        cls.order_cum_exec_fee = {}
         cls.order_status = {} #Filled, Cancelled, New, Created, PartiallyFilled
 
     @classmethod
@@ -63,9 +88,9 @@ class BotAccount:
         cls.num_trade = 0
         cls.num_sell = 0
         cls.num_buy = 0
+        cls.num_market_order = 0
         cls.num_win = 0
         cls.win_rate = 0
-        cls.num_market_order = 0
         cls.sharp_ratio = 0
 
 
@@ -93,25 +118,9 @@ class BotAccount:
             cls.holding_side = side
             cls.holding_size = size
             cls.holding_price = price
-            cls.holding_dt = dt
-            cls.holding_period = period
+            cls.holding_dt = dt #ポジションの保有開始時刻（あくまで最初にholdした時刻でupdateしたときは更新しない）
+            cls.holding_period = period #holding_dtから経過分
 
-
-    @classmethod
-    def __initialize_performance_data(cls):
-        cls.lock_performance = threading.Lock()
-        cls.total_pl = 0
-        cls.total_pl_list = []
-        cls.realized_pl = 0
-        cls.unrealized_pl = 0
-        cls.total_fee = 0
-        cls.num_trade = 0
-        cls.num_sell = 0
-        cls.num_buy = 0
-        cls.num_win = 0
-        cls.win_rate = 0
-        cls.num_market_order = 0
-        cls.sharp_ratio = 0
 
     @classmethod
     def get_performance_data(cls):
@@ -129,7 +138,7 @@ class BotAccount:
                 return {'unrealized_pl':0}
 
     @classmethod
-    def add_order(cls, order_id, side, price, size, leaves_qty, otype):
+    def add_order(cls, order_id, side, price, size, leaves_qty, cum_fee, otype):
         with cls.__lock_order:
             cls.order_id.append(order_id)
             cls.order_side[order_id] = side
@@ -138,6 +147,7 @@ class BotAccount:
             cls.order_leaves_qty[order_id] = leaves_qty
             cls.order_type[order_id] = otype
             cls.order_dt[order_id] = datetime.datetime.now()
+            cls.order_cum_exec_fee[order_id] = cum_fee
             cls.order_status[order_id] = 'New'
             if leaves_qty != size:
                 print('Bot.add_order: New entry order is already partially executed!')
@@ -148,11 +158,12 @@ class BotAccount:
 
 
     @classmethod
-    def __update_order(cls, order_id, price, leaves_qty, status):
+    def __update_order(cls, order_id, price, leaves_qty, order_cum_exec_fee, status):
         with cls.__lock_order:
             cls.order_price[order_id] = price
             cls.order_leaves_qty[order_id] = leaves_qty
             cls.order_status[order_id] = status
+            cls.order_cum_exec_fee[order_id] = order_cum_exec_fee
 
 
     @classmethod
@@ -166,7 +177,7 @@ class BotAccount:
         with cls.__lock_order:
             if oid in cls.order_id:
                 return {'id':oid, 'side':cls.order_side[oid], 'price':cls.order_price[oid], 'size':cls.order_size[oid], 'leaves_qty':cls.order_leaves_qty[oid],
-                'type':cls.order_type[oid], 'dt':cls.order_dt[oid], 'status':cls.order_status[oid]}
+                'type':cls.order_type[oid], 'dt':cls.order_dt[oid], 'cum_exec_fee':cls.order_cum_exec_fee, 'status':cls.order_status[oid]}
             else:
                 print('BotAccount.get_order_data: Unknown order id !', oid)
 
@@ -181,38 +192,34 @@ class BotAccount:
             else:
                 return {'side':cls.order_side[cls.order_id[-1]]}
 
-
+    '''
+    Trade.get_order_byid()でorder_status='Cancelled'になっていたら、現在のleaves_qtyから変化があるかを確認。
+    必要に応じて約定処理を実施した後にcancelledとしてorder情報を削除。
+    *order_exec_check_threadでorder cancelledを捕捉しているので、そこからleaves_qtyの情報も取る。
+    '''
     @classmethod
     def cancel_order(cls, order_id, leaves_qty):
         with cls.__lock_order:
-            if cls.order_leaves_qty != leaves_qty:
-                pass
-            
-    
+            if cls.order_leaves_qty[order_id] > leaves_qty: #約定があった場合
+                cls.__process_execution(order_id, cls.order_side[order_id], )
+
+
     @classmethod
     def __del_order(cls, order_id):
         with cls.__lock_order:
-            if order_in in cls.order_id:
-                cls.order_id.remove(oreder_id)
+            if order_id in cls.order_id:
+                cls.order_id.remove(order_id)
                 del cls.order_side[order_id]
                 del cls.order_price[order_id]
                 del cls.order_size[order_id]
                 del cls.order_leaves_qty[order_id]
                 del cls.order_type[order_id]
                 del cls.order_dt[order_id]
+                del cls.order_cum_exec_fee[order_id]
                 del cls.order_status[order_id]
             else:
                 print('BotAccount-del_order: Invalid order id !', order_id)
 
-
-    '''
-    @classmethod
-    def __account_thread(cls):
-        while SystemFlg.get_system_flg():
-            #holdingがある時に、pl等確認
-            cls.__calc_realized_pl()
-            time.sleep(1)
-    '''
 
     '''
     Should called only by Bot when ohlc was updated
@@ -253,16 +260,25 @@ class BotAccount:
                 else:
                     print('BotAccount-__order_exec_check_thread: Invalid order data!', order)
                     LineNotification.send_message('BotAccount-__order_exec_check_thread: Invalid order data!')
-            times.sleep(0.5)
+            time.sleep(cls.checl_exec_thread_sleep)
 
 
     '''
-    
+    --Limit Orderの場合--
+    Partial Executedでもholdingは即時に反映させる。
+    leaves_qtyの変化分を追加約定として処理
+    cum_exec_feeの変化分を追加feeとして処理 (Δcum_exec_fee * btc price)
+    --Market Orderの場合--
+    order_status = filledになった時点の情報で約定を処理する。
     '''
     @classmethod
-    def __process_execution(cls, oid, side, qty, leaves_qty, cum_exec_qty, otype, exec_price, cum_exec_fee, order_status):
-        cls.__calc_fee(otype, cum_exec_fee, exec_price, average_price)
-        cls.__calc_realized_pl(cum_exec_qty, exec_price)
+    def __process_execution(cls, oid, oside, leaves_qty, cum_exec_qty, otype, exec_price, cum_exec_fee, order_status):
+        od = cls.get_order_data()
+        executed_qty = od['leavest_qty'] - leaves_qty
+        executed_fee = cum_exec_fee - od['cum_exec_fee']
+        flg_count = True if (order_status == 'Filled' or order_status == 'Cancelled') and executed_qty > 0 else False
+        fee = cls.__calc_fee(executed_fee, exec_price, otype, order_status)
+        pl = cls.__calc_realized_pl(cum_exec_qty, exec_price, flg_count)
         if otype == 'Market':
             cls.num_market_order += 1
             print('Bot.__process_execution: Order was executed as a market order !')
@@ -290,25 +306,38 @@ class BotAccount:
         #update order data
         if order_status == 'Filled' or order_status == 'Cancelled':
             cls.__del_order(oid)
-            print('Bot: Order ', order_status, ' - ', side, ' @ ', exec_price, ' x ', qty)
+            print('Bot: Order ', order_status, ' - ', side, ' @ ', exec_price, ' x ', )
         else: #New, Created, PartiallyFilled
             print('BotAccount.__process_execution: Partially Filled. Order ID=', oid, ', side=', side, 'exec qty=', cls.order_size[oid] - leaves_qty, ' @ ', exec_price)
             cls.__update_order(oid, cls.order_price[oid], leaves_qty, 'PartiallyFilled')
 
 
     '''
-    feeはorderがFully executedもしくはcancelledとなった時のみ計算し反映される。
+    limitのときは約定進捗の度に計算、marketのときはFilledのときのみ計算。
     '''
     @classmethod
-    def __calc_fee(cls, cum_exec_fee, exec_price):
-        cls.total_fee -= round(cum_exec_fee * exec_price, 6)
+    def __calc_fee(cls, exec_fee, exec_price, otype, ostatus):
+        fee = 0
+        if otype == 'limit' or (otype == 'market' and ostatus == 'Filled'):
+            fee -= round(exec_fee * exec_price, 6)
+            cls.total_fee -= round(exec_fee * exec_price, 6)
+        return fee
+        
 
 
+    '''
+    pl = 価格変化率 * 売買額
+    -> pl = (exec_price - holding_price) / holding_price * exec_qty    (buyのとき)
+    Num Trade, Num_Win:
+    Filled, Partially Filledの後にCancelledのときのみカウントすべき。
+    同時にnum_winもカウントすることになるので、calc_plで対象の場合にのみカウントするようにする。
+    '''
     @classmethod
-    def __calc_realized_pl(cls, exec_qty, exec_price):
-        pl = (exec_price - cls.holding_price) * exec_qty if cls.holding_side == 'buy' else (cls.holding_price - exec_price) * exec_qty
+    def __calc_realized_pl(cls, exec_qty, exec_price, flg_count):
+        pl = (exec_price - cls.holding_price) / cls.holding_price * exec_qty if cls.holding_side == 'buy' else (cls.holding_price - exec_price) / cls.holding_price * exec_qty
         cls.realized_pl += round(pl,6)
-        cls.num_trade += 1
-        if pl > 0:
-            cls.num_win += 1
-
+        if flg_count:
+            cls.num_trade += 1
+            if pl > 0:
+                cls.num_win += 1
+        return round(pl,6)s

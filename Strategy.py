@@ -1,6 +1,7 @@
 from Trade import Trade
 from SimAccount import SimAccount
 from LineNotification import LineNotification
+from BotAccount import BotAccount
 
 '''
 FullyExecuted / Cancelledの時だけholding dataをsize=1としてnn入力する。
@@ -184,6 +185,64 @@ class Strategy:
                     print('Sim Strategy - Unknown Situation !')
                     LineNotification.send_message('Sim Strategy - Unknown Situation !')
         return ad
+
+
+        def ga_limit_market_strategy(cls, i, nn_output, amount, max_amount, ac:SimAccount):
+            ad = ActionData()
+            output_action_list = ['no', 'buy', 'sell', 'cancel']
+            pred_side = output_action_list[nn_output[0]]
+            otype = 'market' if nn_output[1] == 0 else 'limit'
+            buy_entry_price = OneMinMarketData.ohlc.bid[i]
+            sell_entry_price = OneMinMarketData.ohlc.ask[i]
+            update_price_kijun = 10
+            
+            if ac.holding_size > max_amount:
+                print('Sim Strategy: Holding size is larger than max_amount !')
+            if pred_side == 'no':
+                if ac.getLastOrderSide() != '' and abs(ac.getLastOrderPrice() - (buy_entry_price if ac.getLastOrderSide() == 'buy' else sell_entry_price)) > update_price_kijun:
+                    ad.add_action('update price', pred_side, otype, buy_entry_price if pred_side == 'buy' else sell_entry_price, -1, ac.getLastSerialNum(), "1. No: update order price")
+            elif pred_side == 'cancel':
+                if ac.getLastOrderSide() != '':
+                    ad.add_action('cancel', '', '', 0, 0, ac.getLastSerialNum(), "1. Cancel: cancel all order")
+            else:
+                #2. new entry
+                if ac.holding_side == '' and pred_side != ac.getLastOrderSide() and ac.getLastOrderSide() == '':
+                    ad.add_action('entry', pred_side, otype, buy_entry_price if pred_side == 'buy' else sell_entry_price, amount, -1, "2. New Entry")
+                #3.Update Price
+                elif ac.getLastOrderSide() == pred_side and abs(ac.getLastOrderPrice() - (buy_entry_price if ac.getLastOrderSide() == "buy" else sell_entry_price)) > update_price_kijun:
+                    ad.add_action('update price', '', otype, buy_entry_price if pred_side == 'buy' else sell_entry_price, -1, ac.getLastSerialNum(), "3. update order price")
+                #4. Additional Entry (pred = holding sideで現在orderなく、holding sizeにamount加えてもmax_amount以下の時に追加注文）
+                elif ac.holding_side == pred_side and ac.holding_size + amount <= max_amount and ac.getLastOrderSide() == '':
+                    ad.add_action('entry', pred_side, otype, buy_entry_price if pred_side == 'buy' else sell_entry_price, amount, -1, "4. Additional Entry")
+                #5. Exit (holding side != predでかつpred sideのorderがない時にexit orderを出す）
+                elif (ac.holding_side != pred_side and ac.holding_side != "") and (pred_side != ac.getLastOrderSide()):
+                    #もし既存のadditional orderがあったらまずはそれをキャンセル）
+                    if ac.getLastOrderSide() != '':
+                        ad.add_action('cancel', '', '', 0, 0, ac.getLastSerialNum(), "5. cancel all order")
+                    ad.add_action("entry", pred_side, otype, buy_entry_price if pred_side == 'buy' else sell_entry_price, ac.holding_size, -1, "5. Exit Entry")
+                #6. Opposite Order Cancel
+                elif pred_side != ac.getLastOrderSide() and ac.getLastOrderSide() != '':
+                    ad.add_action('cancel', '', '', 0, 0, ac.getLastSerialNum(), "6. cancel all order")
+                    if ac.holding_size + amount <= max_amount:
+                        ad.add_action('entry', pred_side, otype, buy_entry_price if pred_side == 'buy' else sell_entry_price, amount, -1, "6. Opposite Entry")
+                    if ac.holding_side != "" and ac.holding_side != pred_side:
+                        print("Strategy: Opposite holding exist while cancelling opposite order !")
+                else:
+                    #7. Others1 (既にmax amountのholdingがあり、pred side=holding sideで何もしなくて良い場合）
+                    if ac.holding_size >= max_amount and ac.holding_side == pred_side:
+                        pass
+                    #8.Others2(holding side == pred sideで既にpred sideのorderが存在しており、その価格の更新が不要な場合）
+                    elif ac.holding_side == pred_side and ac.getLastOrderSide() == pred_side and abs(ac.getLastOrderPrice() - (buy_entry_price if ac.getLastOrderSide() == "buy" else sell_entry_price)) <= update_price_kijun:
+                        pass
+                    #9. Others3 (holding side != predで既にexit orderが存在しており、update priceも不要な場合)
+                    elif ac.holding_side != pred_side and ac.getLastOrderSide() == pred_side and abs(ac.getLastOrderPrice() - (buy_entry_price if ac.getLastOrderSide() == "buy" else sell_entry_price)) <= update_price_kijun:
+                        pass
+                    #10.Others4(holding side == pred sideでorderもない場合）
+                    elif ac.holding_side == pred_side and ac.getLastOrderSide() =="":
+                        pass
+                    else:
+                        print("Strategy - Unknown Situation !")
+            return ad
 
 
 class ActionData:

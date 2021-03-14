@@ -13,14 +13,11 @@ from LogMaster import LogMaster
 
 '''
 前提条件
-・全てLimit orderを想定（板にぶつけてしまい結果としてmarket orderとなった場合も適切に対処）
-
-Botで管理するためのBotAccountとNN入力のためのBotAccountは分けて考える。
-（NN: partial executedで実際はholding / order両方で中途半端なsizeを持っていても、holding=1, order=0としてNN入力に使う）
-（Bot: 実際の状況を正確に反映させることを優先する。partial executedでholding / orderを実際の状況に合わせて更新）
-（Bot: performanceは、partial execの度にrealized_pl, feeを加算するので小さな桁で誤差が生じる可能性がある。）
-（）
-
+Strategyの売買判断に従って取引して、結果をBotAccountとSimAccountの両方に反映する。
+NN / Strategyにおいては、SimAccountの情報を使って計算する。実際にorder出すときはその時点のbid/askに出す。
+*Partial Execのときは、holding有りとしてNNに入力するが、orderは残っていても無しとしてNNに入力する。
+->NNは全約定として反対売買を判断する ->order cancelしてholding sizeに対して反対売買すればいい
+->NNは全約定として保有（buy）を継続し価格が上がり続ける、botは残りのorderをprice updateしながら全約定を目指す。結果として平均約定値が高くなりパフォーマンスが悪化する。 ->避けることができないが、simよりbotの方が約定能力高いので、この場合はsimでも1分毎にprice updateすると思われる。
 '''
 class Bot():
     def __init__(self, order_size):
