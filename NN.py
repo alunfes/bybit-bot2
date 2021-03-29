@@ -57,3 +57,23 @@ class NN:
         otype = 0 if output_vals[-1] >= 0.5 else 1
         res.append(otype)
         return res
+
+    def getActivatedUnitLimitMarket2(self, output_vals, threshold):
+        res = []
+        fired_units = []
+        for i in range(len(output_vals)-1):
+            if output_vals[i] >= threshold:
+                fired_units.append(i)
+        if len(fired_units) == 2 and 0 in fired_units and 3 in fired_units: #no / cancelが同時に発火した場合はcancelとして取り扱う
+            res.append(3)
+        elif len(fired_units) > 1 or len(fired_units) == 0:
+            res.append(0)
+        elif len(fired_units) == 1:
+            res.append(fired_units[0])
+        else:
+            print('Unknown fired units !')
+            res.append(0)
+        #order type
+        otype = 0 if output_vals[-1] >= 0.5 else 1
+        res.append(otype)
+        return res

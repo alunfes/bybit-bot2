@@ -1,35 +1,34 @@
 import numpy as np
 from MarketData import MarketData
 
-
-
+'''
+can be used only by bot
+'''
 class NNInputDataGenerator:
-    def generate_nn_input_data_limit(self, ac, i, index):
+    def generate_nn_input_data_limit(self, ac, gene_index, index_data):
         #ma divergence
         input_data = []
-        if index[0] == 1:
-            for key in MarketData.ohlc.divergence_scaled.keys():
-                input_data.append(MarketData.ohlc.divergence_scaled[key].iloc[i])
-        if index[1] == 1:
-            for key in MarketData.ohlc.vola_kyori_scaled.keys():
-                input_data.append(MarketData.ohlc.vola_kyori_scaled[key].iloc[i])
-        if index[2] == 1:
-            for key in MarketData.ohlc.vol_ma_divergence_scaled.keys():
-                input_data.append(MarketData.ohlc.vol_ma_divergence_scaled[key].iloc[i])
-        if index[3] == 1:
-            for key in MarketData.ohlc.buysell_vol_ratio_scaled.keys():
-                input_data.append(MarketData.ohlc.buysell_vol_ratio_scaled[key].iloc[i])
-        if index[4] == 1:
-            for key in MarketData.ohlc.rsi_scaled.keys():
-                input_data.append(MarketData.ohlc.rsi_scaled[key].iloc[i])
-        if index[5] == 1:
-            for key in MarketData.ohlc.uwahige_scaled.keys():
-                input_data.append(MarketData.ohlc.uwahige_scaled[key].iloc[i])
-        if index[6] == 1:
+        if gene_index[0] == 1:
+            for key in index_data['divergence_scaled'].keys():
+                input_data.append(index_data['divergence_scaled'][key][-1])
+        if gene_index[1] == 1:
+            for key in index_data['vola_kyori_scaled'].keys():
+                input_data.append(index_data['vola_kyori_scaled'][key][-1])
+        if gene_index[2] == 1:
+            for key in index_data['vol_ma_divergence_scaled'].keys():
+                input_data.append(index_data['vol_ma_divergence_scaled'][key][-1])
+        if gene_index[3] == 1:
+            for key in index_data['buysell_vol_ratio_scaled'].keys():
+                input_data.append(index_data['buysell_vol_ratio_scaled'][key][-1])
+        if gene_index[4] == 1:
+            for key in index_data['rsi_scaled'].keys():
+                input_data.append(index_data['rsi_scaled'][key][-1])
+        if gene_index[5] == 1:
+            for key in index_data['uwahige_scaled'].keys():
+                input_data.append(index_data['uwahige_scaled'][key][-1])
+        if gene_index[6] == 1:
             for key in MarketData.ohlc.shitahige_scaled.keys():
                 input_data.append(MarketData.ohlc.shitahige_scaled[key].iloc[i])
-        if np.nan in input_data:
-                print("NNInputDataGenerator: Nan is included !")
 
         #order side
         if len(ac.order_side) > 0:
@@ -59,13 +58,14 @@ class NNInputDataGenerator:
             input_data.append(0)
 
         #holding size
+        '''
         max_amount = 3
         for j in range(max_amount):
             if ac.holding_size > j:
                 input_data.append(1)
             else:
                 input_data.append(0)
-
+        '''
         #ac pl, 損益率を表現する
         pl_ratio = 100.0 * (ac.unrealized_pl / ac.holding_size) / (ac.holding_price) if ac.holding_size > 0 else 0
         for j in range(1, 21):
@@ -73,12 +73,14 @@ class NNInputDataGenerator:
                 input_data.append(1)
             else:
                 input_data.append(0)
-
+        '''
         #holding period
         for j in range(1, 21):
             if ac.holding_period >= j*10:
                 input_data.append(1)
             else:
                 input_data.append(0)
-        print(input_data)
+        '''
+        if np.nan in input_data:
+                print("NNInputDataGenerator: Nan is included !")
         return input_data

@@ -29,6 +29,9 @@ class OneMinData:
         self.vola_kyori_scaled = pd.DataFrame()
         self.vol_ma_divergence = {}
         self.vol_ma_divergence_scaled = pd.DataFrame()
+        self.buysell_vol_ratio = {}
+        self.buysell_vol_ratio_scaled = pd.DataFrame()
+        self.buysellvol_price_ratio= {}
         self.rsi = {}
         self.rsi_scaled = pd.DataFrame()
         self.uwahige = {}
@@ -47,27 +50,31 @@ class OneMinData:
         self.buy_vol = self.buy_vol[-cut_size:]
         self.sell_vol = self.sell_vol[-cut_size:]
 
-    def get_df(self):
+    def get_ohlc(self):
         return pd.DataFrame({'datetime':self.datetime, 'open':self.open, 'high':self.high, 'low':self.low, 'close':self.close, 'size':self.size, 'buy_vol':self.buy_vol, 'sell_vol':self.sell_vol})
 
+    def get_index(self):
+        return {'divergence_scaled':self.divergence_scaled, 'vola_kyori_scaled':self.vola_kyori_scaled, 'vol_ma_divergence_scaled':self.vol_ma_divergence_scaled, 'buysell_vol_ratio_scaled':self.buysell_vol_ratio_scaled,
+        'rsi_scaled':self.rsi_scaled, 'uwahige_scaled':self.uwahige_scaled, 'shitahige_scaled':self.shitahige_scaled}
 
 '''
-毎分ohlcを取得してindexを計算する。
+最初にonemin_bybit.csvを最新のデータに更新する。
+onemin_bybitから必要な量のデータを読み込んで、OneMinMarketData = ohlcを更新する。
+indexを計算する。
+その後は、毎分ohlcを取得してindexを計算する。
 '''
 class MarketData:
     @classmethod
     def initialize_for_bot(cls, term_list):
         print('started MarketData')
         cls.term_list = term_list
-        cls.ohlc = cls.__read_from_csv('./Data/onemin_bybit.csv')
-        t = datetime.datetime.now().timestamp()
         #update onemin_bybit.csv
         dmd = DownloadMarketData()
         dmd.download_all_targets_async(2017,1,2)
         dmd.update_ohlcv()
         RestAPI.update_onemin_data()
         #最大のtermのindexの計算に必要なデータを確保するためのtarget from tを計算してデータを取得
-        target_from_t = int(t - (t - (t // 60.0) * 60.0)) - int((60 * cls.term_list[-1] * 2.1))
+        cls.md = cls.__read_from_csv('./Data/onemin_bybit.csv') #term_listから必要最小限のデータのみを読み込む機能付き
         cls.ohlc_sim_flg = False #Trueの時にSimが最新のohlc / indexデータの取得する。
         cls.ohlc_bot_flg = False #Trueの時にBotが最新のohlc / indexデータの取得する。
         th = threading.Thread(target=cls.__ohlc_thread)
@@ -86,8 +93,7 @@ class MarketData:
             cls.ohlc_bot_flg = False
         else:
             print('MarketData-get_latest_ohlc: Invalid sim_bot_flg !', sim_bot_flg)
-        return {'dt':cls.ohlc.datetime[-1], 'open':cls.ohlc.open[-1], 'high':cls.ohlc.high[-1], 'low':cls.ohlc.low[-1], 'close':cls.ohlc.close[-1], 
-        'divergence_scaled':cls.ohlc.divergence_scaled.iloc[-1], 'vola_kyori_scaled':cls.ohlc.vola_kyori_scaled.iloc[-1]}
+        return cls.md.get_ohlc()
 
 
     '''
@@ -100,23 +106,23 @@ class MarketData:
         kijun_timestamp = int(t - (t - (t // 60.0) * 60.0)) + 60  # timestampの秒を次の分の0に修正
         while SystemFlg.get_system_flg():
             if kijun_timestamp + 1 <= datetime.datetime.now().timestamp():
-                downloaded_df = RestAPI.get_ohlcv_update(cls.ohlc.datetime[-1])
-                #downloaded_df = RestAPI.get_ohlc(1, cls.ohlc.timestamp[-1] - 60)
+                downloaded_df = RestAPI.get_ohlcv_update(cls.md.datetime[-1])
+                #downloaded_df = RestAPI.get_ohlc(1, cls.md.timestamp[-1] - 60)
                 cls.__add_ohlc_data(downloaded_df)
-                print(cls.ohlc.get_df().iloc[-1:])
+                print(cls.md.get_ohlc().iloc[-1:])
                 '''
                 print('divergence_scaled')
-                print(cls.ohlc.divergence_scaled.iloc[-1:])
+                print(cls.md.divergence_scaled.iloc[-1:])
                 print('vola_kyori_scaled')
-                print(cls.ohlc.vola_kyori_scaled.iloc[-1:])
+                print(cls.md.vola_kyori_scaled.iloc[-1:])
                 print('vol_ma_divergence_scaled')
-                print(cls.ohlc.vol_ma_divergence_scaled.iloc[-1:])
+                print(cls.md.vol_ma_divergence_scaled.iloc[-1:])
                 print('rsi_scaled')
-                print(cls.ohlc.rsi_scaled.iloc[-1:])
+                print(cls.md.rsi_scaled.iloc[-1:])
                 print('uwahige_scaled')
-                print(cls.ohlc.uwahige_scaled.iloc[-1:])
+                print(cls.md.uwahige_scaled.iloc[-1:])
                 print('shitahige_scaled')
-                print(cls.ohlc.shitahige_scaled.iloc[-1:])
+                print(cls.md.shitahige_scaled.iloc[-1:])
                 '''
                 kijun_timestamp += 60
             else:
@@ -129,21 +135,21 @@ class MarketData:
         #dt[-1]と同じdf_ohlc['datetime']を見つけてその次からextendする
         matched_index = -1
         for i in range(len(df_ohlc)):
-            if cls.ohlc.datetime[-1] == df_ohlc.index[i]:
+            if cls.md.datetime[-1] == df_ohlc.index[i]:
                 matched_index = i
                 break
         if matched_index >= 0:
-            cut_size = len(cls.ohlc.datetime)
-            cls.ohlc.datetime.extend(list(df_ohlc.index[matched_index+1:]))
-            cls.ohlc.open.extend(list(df_ohlc['open'].iloc[matched_index+1:]))
-            cls.ohlc.high.extend(list(df_ohlc['high'].iloc[matched_index+1:]))
-            cls.ohlc.low.extend(list(df_ohlc['low'].iloc[matched_index+1:]))
-            cls.ohlc.close.extend(list(df_ohlc['close'].iloc[matched_index+1:]))
-            cls.ohlc.size.extend(list(df_ohlc['size'].iloc[matched_index+1:]))
-            cls.ohlc.buy_vol.extend(list(df_ohlc['buy_vol'].iloc[matched_index+1:]))
-            cls.ohlc.sell_vol.extend(list(df_ohlc['sell_vol'].iloc[matched_index+1:]))
-            cls.ohlc.cut_data(cut_size)
-            cls.df = cls.ohlc.get_df()
+            cut_size = len(cls.md.datetime)
+            cls.md.datetime.extend(list(df_ohlc.index[matched_index+1:]))
+            cls.md.open.extend(list(df_ohlc['open'].iloc[matched_index+1:]))
+            cls.md.high.extend(list(df_ohlc['high'].iloc[matched_index+1:]))
+            cls.md.low.extend(list(df_ohlc['low'].iloc[matched_index+1:]))
+            cls.md.close.extend(list(df_ohlc['close'].iloc[matched_index+1:]))
+            cls.md.size.extend(list(df_ohlc['size'].iloc[matched_index+1:]))
+            cls.md.buy_vol.extend(list(df_ohlc['buy_vol'].iloc[matched_index+1:]))
+            cls.md.sell_vol.extend(list(df_ohlc['sell_vol'].iloc[matched_index+1:]))
+            cls.md.cut_data(cut_size)
+            cls.df = cls.md.get_ohlc()
             cls.calc_sma()
             cls.calc_divergence()
             cls.calc_divergence_scaled()
@@ -173,7 +179,7 @@ class MarketData:
     @classmethod
     def initialize_for_sim(cls, term_list):
         cls.term_list = term_list
-        cls.ohlc = cls.__read_from_csv('./Data/onemin_bybit.csv')
+        cls.md = cls.__read_from_csv('./Data/onemin_bybit.csv')
         cls.calc_sma()
         cls.calc_divergence()
         cls.calc_divergence_scaled()
@@ -200,14 +206,16 @@ class MarketData:
 
     @classmethod
     def calc_sma(cls):
+        cls.md.sma = {}
         for t in cls.term_list:  
-            cls.ohlc.sma[t] = cls.df['close'].rolling(window=t).mean()
+            cls.md.sma[t] = cls.df['close'].rolling(window=t).mean()
 
 
     @classmethod
     def calc_divergence(cls):
+        cls.md.divergence = {}
         for t in cls.term_list:
-            cls.ohlc.divergence[t] = (cls.df['close'] - cls.ohlc.sma[t]) / cls.ohlc.sma[t]
+            cls.md.divergence[t] = (cls.df['close'] - cls.md.sma[t]) / cls.md.sma[t]
 
     @classmethod
     def calc_divergence_scaled(cls):
@@ -216,72 +224,110 @@ class MarketData:
             df_divergence = pd.DataFrame(MarketData.ohlc.divergence)
             min_max_scaler = MinMaxScaler()
             x_scaled = min_max_scaler.fit_transform(df_divergence.T)
-            cls.ohlc.divergence_scaled = pd.DataFrame(x_scaled).T
-            cls.convert_col_for_scaled_data(cls.ohlc.divergence_scaled, 'divergence_scaled')
+            cls.md.divergence_scaled = pd.DataFrame(x_scaled).T
+            cls.convert_col_for_scaled_data(cls.md.divergence_scaled, 'divergence_scaled')
 
     @classmethod
     def calc_vola_kyori(cls):
+        cls.md.vola_kyori = {}
         for t in cls.term_list: 
             change_df = cls.df['close'].pct_change()
             change_df = change_df.pow(2.0)
-            cls.ohlc.vola_kyori[t] = change_df.rolling(window=t).mean()
+            cls.md.vola_kyori[t] = change_df.rolling(window=t).mean()
 
     @classmethod
     def calc_vola_kyori_scaled(cls):
         with warnings.catch_warnings():
             warnings.filterwarnings('ignore', r'All-NaN (slice|axis) encountered')
-            df_vola_kyori = pd.DataFrame(cls.ohlc.vola_kyori)
+            df_vola_kyori = pd.DataFrame(cls.md.vola_kyori)
             min_max_scaler = MinMaxScaler()
             x_scaled = min_max_scaler.fit_transform(df_vola_kyori.T)
-            cls.ohlc.vola_kyori_scaled = pd.DataFrame(x_scaled).T
-            cls.convert_col_for_scaled_data(cls.ohlc.vola_kyori_scaled, 'vola_kyori_scaled')
+            cls.md.vola_kyori_scaled = pd.DataFrame(x_scaled).T
+            cls.convert_col_for_scaled_data(cls.md.vola_kyori_scaled, 'vola_kyori_scaled')
             
 
     @classmethod
     def calc_vol_ma_divergence(cls):
+        cls.md.vol_ma_divergence = {}
         with warnings.catch_warnings():
             warnings.filterwarnings('ignore', r'All-NaN (slice|axis) encountered')
             for t in cls.term_list:
                 vol_ma = []
                 vol_ma = cls.df['size'].rolling(window=t).mean()
-                cls.ohlc.vol_ma_divergence[t] = list((np.array(cls.ohlc.size) - np.array(vol_ma)) / np.array(vol_ma))
+                cls.md.vol_ma_divergence[t] = list((np.array(cls.md.size) - np.array(vol_ma)) / np.array(vol_ma))
 
     @classmethod
     def calc_vol_ma_divergence_scaled(cls):
         with warnings.catch_warnings():
             warnings.filterwarnings('ignore', r'All-NaN (slice|axis) encountered')
-            df_vol_ma_div = pd.DataFrame(cls.ohlc.vol_ma_divergence)
+            df_vol_ma_div = pd.DataFrame(cls.md.vol_ma_divergence)
             min_max_scaler = MinMaxScaler()
             x_scaled = min_max_scaler.fit_transform(df_vol_ma_div.T)
-            cls.ohlc.vol_ma_divergence_scaled = pd.DataFrame(x_scaled).T
-            cls.convert_col_for_scaled_data(cls.ohlc.vol_ma_divergence_scaled, 'vol_ma_divergence_scaled')
+            cls.md.vol_ma_divergence_scaled = pd.DataFrame(x_scaled).T
+            cls.convert_col_for_scaled_data(cls.md.vol_ma_divergence_scaled, 'vol_ma_divergence_scaled')
     
+    @classmethod
+    def calc_buysell_vol_ratio(cls):
+        cls.md.buysell_vol_ratio = {}
+        for t in cls.term_list:
+            buy_ma = []
+            sell_ma = []
+            buy_ma = cls.df['buy_vol'].rolling(window=t).mean()
+            sell_ma = cls.df['sell_vol'].rolling(window=t).mean()
+            ratio = []
+            for i in range(len(buy_ma)):
+                if sell_ma[i] > 0:
+                    ratio.append(buy_ma[i] / sell_ma[i])
+                else:
+                    ratio.append(buy_ma[i])
+            cls.md.buysell_vol_ratio[t] = ratio
+
+
+    @classmethod
+    def calc_buysell_vol_ratio_scaled(cls):
+        with warnings.catch_warnings():
+            warnings.filterwarnings('ignore', r'All-NaN (slice|axis) encountered')
+            df_buysell_vol = pd.DataFrame(cls.md.buysell_vol_ratio)
+            min_max_scaler = MinMaxScaler()
+            x_scaled = min_max_scaler.fit_transform(df_buysell_vol.T)
+            cls.md.buysell_vol_ratio_scaled = pd.DataFrame(x_scaled).T
+            cls.convert_col_for_scaled_data(cls.md.buysell_vol_ratio_scaled, 'buysell_vol_ratio_scaled')
+
+    @classmethod
+    def calc_buysell_vol_price_ratio(cls):
+        for t in cls.term_list:
+            diff_array = [np.nan] * t
+            for i in range(t, len(cls.md.close)):
+                diff_array.append( (cls.md.close[i]) / cls.md.close[i-t])
+            cls.md.buysellvol_price_ratio[t] = list(np.array(diff_array) / np.array(cls.md.buysell_vol_ratio[t]))
+
 
     @classmethod
     def calc_rsi(cls):
+        cls.md.rsi = {}
         for t in cls.term_list:
             up_list = []
             down_list = []
-            cls.ohlc.rsi[t] = []
+            cls.md.rsi[t] = []
             r = 0
             for i in range(0, t-1): 
-                if cls.ohlc.close[i+1] - cls.ohlc.close[i] > 0:
-                    up_list.append(cls.ohlc.close[i+1] - cls.ohlc.close[i])
+                if cls.md.close[i+1] - cls.md.close[i] > 0:
+                    up_list.append(cls.md.close[i+1] - cls.md.close[i])
                     down_list.append(0)
                 else:
-                    down_list.append(cls.ohlc.close[i+1] - cls.ohlc.close[i])
+                    down_list.append(cls.md.close[i+1] - cls.md.close[i])
                     up_list.append(0)
-                cls.ohlc.rsi[t].append(np.nan)
+                cls.md.rsi[t].append(np.nan)
             up = sum(up_list) / t
             down = -sum(down_list) / t
             r = up / (up + down)
-            cls.ohlc.rsi[t].append(r)
-            for i in range(t-1, len(cls.ohlc.close)-1):
-                if cls.ohlc.close[i+1] - cls.ohlc.close[i] > 0:
-                    up_list.append(cls.ohlc.close[i+1] - cls.ohlc.close[i])
+            cls.md.rsi[t].append(r)
+            for i in range(t-1, len(cls.md.close)-1):
+                if cls.md.close[i+1] - cls.md.close[i] > 0:
+                    up_list.append(cls.md.close[i+1] - cls.md.close[i])
                     down_list.append(0)
                 else:
-                    down_list.append(cls.ohlc.close[i+1] - cls.ohlc.close[i])
+                    down_list.append(cls.md.close[i+1] - cls.md.close[i])
                     up_list.append(0)
                 del up_list[0]
                 del down_list[0]
@@ -291,67 +337,69 @@ class MarketData:
                     r = 0
                 else:
                     r = up / (up + down)
-                cls.ohlc.rsi[t].append(r)
+                cls.md.rsi[t].append(r)
 
 
     @classmethod
     def calc_rsi_scaled(cls):
         with warnings.catch_warnings():
             warnings.filterwarnings('ignore', r'All-NaN (slice|axis) encountered')
-            df_rsi = pd.DataFrame(cls.ohlc.rsi)
+            df_rsi = pd.DataFrame(cls.ohmdlc.rsi)
             min_max_scaler = MinMaxScaler()
             x_scaled = min_max_scaler.fit_transform(df_rsi.T)
-            cls.ohlc.rsi_scaled = pd.DataFrame(x_scaled).T
-            cls.convert_col_for_scaled_data(cls.ohlc.rsi_scaled, 'rsi_scaled')
+            cls.md.rsi_scaled = pd.DataFrame(x_scaled).T
+            cls.convert_col_for_scaled_data(cls.md.rsi_scaled, 'rsi_scaled')
 
 
     @classmethod
     def calc_uwahige(cls):
+        cls.md.uwahige = {}
         for t in cls.term_list:
-            cls.ohlc.uwahige[t] = []
+            cls.md.uwahige[t] = []
             for i in range(t):
-                cls.ohlc.uwahige[t].append(np.nan)
-            for i in range(t, len(cls.ohlc.close)):
-                close_list = cls.ohlc.close[i-t:i]
+                cls.md.uwahige[t].append(np.nan)
+            for i in range(t, len(cls.md.close)):
+                close_list = cls.md.close[i-t:i]
                 if close_list[0] > close_list[-1]: #insen
-                    cls.ohlc.uwahige[t].append(1000.0 * (max(close_list) - close_list[0]) / close_list[-1] / t)
+                    cls.md.uwahige[t].append(1000.0 * (max(close_list) - close_list[0]) / close_list[-1] / t)
                 else: #yosen
-                    cls.ohlc.uwahige[t].append( 1000.0 * (max(close_list) - close_list[-1]) / close_list[-1]/ t)
+                    cls.md.uwahige[t].append( 1000.0 * (max(close_list) - close_list[-1]) / close_list[-1]/ t)
 
     @classmethod
     def calc_shitahige(cls):
+        cls.md.shitahige = {}
         for t in cls.term_list:
-            cls.ohlc.shitahige[t] = []
+            cls.md.shitahige[t] = []
             for i in range(t):
-                cls.ohlc.shitahige[t].append(np.nan)
-            for i in range(t, len(cls.ohlc.close)):
-                close_list = cls.ohlc.close[i-t:i]
+                cls.md.shitahige[t].append(np.nan)
+            for i in range(t, len(cls.md.close)):
+                close_list = cls.md.close[i-t:i]
                 if close_list[0] > close_list[-1]: #insen
-                    cls.ohlc.shitahige[t].append(1000.0 * (close_list[-1] - min(close_list)) / close_list[-1] / t)
+                    cls.md.shitahige[t].append(1000.0 * (close_list[-1] - min(close_list)) / close_list[-1] / t)
                 else: #yosen
-                    cls.ohlc.shitahige[t].append( 1000.0 * (close_list[0] - min(close_list)) / close_list[-1]/ t)
+                    cls.md.shitahige[t].append( 1000.0 * (close_list[0] - min(close_list)) / close_list[-1]/ t)
 
 
     @classmethod
     def calc_uwahige_scaled(cls):
         with warnings.catch_warnings():
             warnings.filterwarnings('ignore', r'All-NaN (slice|axis) encountered')
-            df_uwahige = pd.DataFrame(cls.ohlc.uwahige)
+            df_uwahige = pd.DataFrame(cls.md.uwahige)
             min_max_scaler = MinMaxScaler()
             x_scaled = min_max_scaler.fit_transform(df_uwahige.T)
-            cls.ohlc.uwahige_scaled = pd.DataFrame(x_scaled).T
-            cls.convert_col_for_scaled_data(cls.ohlc.uwahige_scaled, 'uwahige_scaled')
+            cls.md.uwahige_scaled = pd.DataFrame(x_scaled).T
+            cls.convert_col_for_scaled_data(cls.md.uwahige_scaled, 'uwahige_scaled')
 
     
     @classmethod
     def calc_shitahige_scaled(cls):
         with warnings.catch_warnings():
             warnings.filterwarnings('ignore', r'All-NaN (slice|axis) encountered')
-            df_shitahige = pd.DataFrame(cls.ohlc.shitahige)
+            df_shitahige = pd.DataFrame(cls.md.shitahige)
             min_max_scaler = MinMaxScaler()
             x_scaled = min_max_scaler.fit_transform(df_shitahige.T)
-            cls.ohlc.shitahige_scaled = pd.DataFrame(x_scaled).T
-            cls.convert_col_for_scaled_data(cls.ohlc.shitahige_scaled, 'shitahige_scaled')
+            cls.md.shitahige_scaled = pd.DataFrame(x_scaled).T
+            cls.convert_col_for_scaled_data(cls.md.shitahige_scaled, 'shitahige_scaled')
 
     @classmethod
     def convert_col_for_scaled_data(cls, data, var_name):
@@ -362,18 +410,11 @@ class MarketData:
 
 
     @classmethod
-    def generate_df_from_dict(cls):
-        df = pd.DataFrame({'dt':cls.ohlc.dt, 'open':cls.ohlc.open, 'high':cls.ohlc.high, 'low':cls.ohlc.low, 'close':cls.ohlc.close, 'size':cls.ohlc.size})
-        print('completed generate df')
-        return df
-
-
-    @classmethod
     def test(cls):
         term_list = list(range(10, 1000, 100))
         cls.term_list = term_list
         start = time.time()
-        cls.ohlc = cls.__read_from_csv('./Data/onemin_bybit.csv')
+        cls.md = cls.__read_from_csv('./Data/onemin_bybit.csv')
         elapsed_time = time.time() - start
         print ("read_data_time:{0}".format(elapsed_time) + "[sec]")
         start = time.time()
