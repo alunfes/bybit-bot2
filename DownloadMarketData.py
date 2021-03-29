@@ -1,3 +1,4 @@
+from threading import current_thread
 import requests
 import urllib.request
 import pandas as pd
@@ -173,6 +174,12 @@ class DownloadMarketData:
       '''
       onemin_bybit.csvの最後の日付の翌日からのデータファイルを取得してohlcvとして追記する。
       (最新データの時刻が59分以外の場合は、latest_dtをその日とする。)
+
+      ・fileの最後の日時を確認＝latest_dt & current_dt
+      ・latest_dt.minutes!=59の時はflg_ontheday=falseにする
+      ・current_dt +1day
+      ・current_dtのファイルからデータを読み込んでohlcに変換
+      ・
       '''
       def update_ohlcv(self):
             line_count = 0
@@ -181,24 +188,29 @@ class DownloadMarketData:
             df = pd.read_csv('./Data/onemin_bybit.csv', skiprows=range(1,line_count - 10))
             print('DownloadMarketData: update_ohlc')
             latest_dt = datetime.datetime.strptime(df.iloc[-1]['dt'], '%Y-%m-%d %H:%M:%S')
+            current_dt = latest_dt
             print('latest_dt=', latest_dt)
             self.__check_downloaded_file()
             ohlcv_df = pd.DataFrame()
             flg_ontheday = False #True:last_dt.minute != 59
+            num = 0
+            if latest_dt.minute != 59:
+                  flg_ontheday = True      # 2021-03-10 06:46:00,5
+            else:
+                  current_dt = current_dt +datetime.timedelta(days=1)
             while True:
-                  if latest_dt.minute == 59:
-                        latest_dt = latest_dt+datetime.timedelta(days=1)
-                  else:
-                        flg_ontheday = True      
-                  target_file_name = 'BTCUSD' + str(latest_dt.year) + '-' + str(str(latest_dt.month).zfill(2)) + '-' + str(str(latest_dt.day).zfill(2)) + '.csv.gz' #BTCUSD2021-03-02.csv.gz
+                  target_file_name = 'BTCUSD' + str(current_dt.year) + '-' + str(str(current_dt.month).zfill(2)) + '-' + str(str(current_dt.day).zfill(2)) + '.csv.gz' #BTCUSD2021-03-02.csv.gz
                   if target_file_name in self.downloaded_file:
                         tick_df = pd.read_csv('./Data/'+target_file_name, compression='gzip', index_col='timestamp')
                         tick_df.index = [datetime.datetime.fromtimestamp(x) for x in tick_df.index]
                         all_df = self.convert_tick_to_ohlcv(tick_df)
+                        print('OHLC update progress: Converted #', num, ' dt=', all_df.index[-1])
+                        num += 1
                         if len(ohlcv_df) == 0:
                               ohlcv_df = all_df
                         else:
                               ohlcv_df = pd.concat([ohlcv_df, all_df], axis=0)
+                        current_dt = current_dt +datetime.timedelta(days=1)
                   else:
                         break
             ohlcv_df = self.__check_ohlc_data2(ohlcv_df)

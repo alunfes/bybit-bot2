@@ -340,4 +340,4 @@ class BotAccount:
             cls.num_trade += 1
             if pl > 0:
                 cls.num_win += 1
-        return round(pl,6)s
+        return round(pl,6)
