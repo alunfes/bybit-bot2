@@ -14,4 +14,5 @@ class SystemFlg:
 
     @classmethod
     def get_system_flg(cls):
-        return cls.system_flg
+        with cls.lock:
+            return cls.system_flg

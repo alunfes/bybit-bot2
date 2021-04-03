@@ -1,4 +1,5 @@
 from threading import current_thread
+from numpy import conjugate
 import requests
 import urllib.request
 import pandas as pd
@@ -142,7 +143,7 @@ class DownloadMarketData:
             all_df['ask'] = ask
             all_df['buy_vol'] = buy_df['size']
             all_df['sell_vol'] = sell_df['size']
-            ohlcv_df = self.__check_ohlc_data2(all_df)
+            ohlcv_df = self.__check_size_replace(all_df)
             ohlcv_df.index.name = 'dt'
             return ohlcv_df
 
@@ -165,7 +166,7 @@ class DownloadMarketData:
                         ohlcv_df = all_df
                   else:
                         ohlcv_df = pd.concat([ohlcv_df, all_df], axis=0)
-            ohlcv_df = self.__check_ohlc_data2(ohlcv_df)
+            ohlcv_df = self.__check_size_replace(ohlcv_df)
             ohlcv_df.index.name = 'dt'
             ohlcv_df.to_csv('./Data/onemin_bybit.csv', index=True)
             pass
@@ -213,7 +214,7 @@ class DownloadMarketData:
                         current_dt = current_dt +datetime.timedelta(days=1)
                   else:
                         break
-            ohlcv_df = self.__check_ohlc_data2(ohlcv_df)
+            ohlcv_df = self.__check_size_replace(ohlcv_df)
             ohlcv_df.index.name = 'dt'
             #最新データの時刻が59分以外の場合に、重複したデータを削除する
             if flg_ontheday:
@@ -222,18 +223,10 @@ class DownloadMarketData:
             ohlcv_df.to_csv('./Data/onemin_bybit.csv', mode='a', header=False, index=True)
             print('DonwloadMarketData: Completed update_ohlcv.')
       
-
-      def __check_ohlc_data(self, df):
-            num_correction = 0
-            for i in range(len(df)):
-                  if df['size'].iloc[i] == 0:
-                        df['open'].iloc[i], df['high'].iloc[i], df['low'].iloc[i], df['close'].iloc[i], df['size'].iloc[i]  = df['open'].iloc[i-1], df['high'].iloc[i-1], df['low'].iloc[i-1], df['close'].iloc[i-1], 0
-                        num_correction += 1
-            if num_correction > 0:
-                  print('corrected ', num_correction, ' data.')
-            return df
-
-      def __check_ohlc_data2(self, df):
+      '''
+      size==0のものが合った時にohlcを１分前の値と同じにする。
+      '''
+      def __check_size_replace(self, df):
             num_correction = 0
             for i in range(len(df)):
                   if df['size'].iloc[i] == 0:
@@ -243,6 +236,23 @@ class DownloadMarketData:
                   print('corrected ', num_correction, ' data.')
                   print(df.iloc[0:])
             return df
+
+      
+      '''
+      onemin_bybit.csvを読み込んで、データ抜けや不正値が含まれていないかを確認する。
+      '''
+      def check_all_data(self):
+            print('DownloadMarketData: Checking all data...')
+            df = pd.read_csv('./Data/onemin_bybit.csv')
+            dt = list(map(lambda x: datetime.datetime.strptime(str(x), '%Y-%m-%d %H:%M:%S'), list(cls.df['dt'])))
+            df['dt'] = dt
+            current_dt = dt[-1]
+            for i in range(len(df)):
+                  if current_dt != df['dt'].iloc[i]:
+                        print('dt=', current_dt, ' is missed !')
+                  current_dt = current_dt + +datetime.timedelta(minutes=1)
+
+
 
 
       async def handler(self, loop):

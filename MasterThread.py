@@ -19,7 +19,7 @@ class MasterThread:
         while True:
             print('Please select program mode.')
             print('1: OHLCV data update')
-            print('2: MarketData test')
+            print('2: Mark3etData test')
             print('3: Bot test')
             print('4: Sim')
             print('5: WS Test')
@@ -35,11 +35,13 @@ class MasterThread:
             elif select == '2':
                 print('2: MarketData test')
                 term_list = list(range(10, 1000, 100))
-                MarketData.initialize_for_bot(term_list)
+                MarketData.initialize_for_bot(term_list, True)
                 break
             elif select == '3':
                 print('3: Bot test')
-                pass
+                term_list = list(range(10, 1000, 100))
+                MarketData.initialize_for_bot(term_list, False)
+                bot = Bot(100)
                 break
             elif select == '4':
                 print('4: Sim')

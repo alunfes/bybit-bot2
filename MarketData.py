@@ -14,6 +14,7 @@ from DownloadMarketData import DownloadMarketData
 
 class OneMinData:
     def initialize(self):
+        self.__lock_data = threading.Lock()
         self.datetime = []
         self.open = []
         self.high = []
@@ -41,21 +42,24 @@ class OneMinData:
 
 
     def cut_data(self, cut_size):
-        self.datetime = self.datetime[-cut_size:]
-        self.open = self.open[-cut_size:]
-        self.high = self.high[-cut_size:]
-        self.low = self.low[-cut_size:]
-        self.close = self.close[-cut_size:]
-        self.size = self.size[-cut_size:]
-        self.buy_vol = self.buy_vol[-cut_size:]
-        self.sell_vol = self.sell_vol[-cut_size:]
+        with self.__lock_data:
+            self.datetime = self.datetime[-cut_size:]
+            self.open = self.open[-cut_size:]
+            self.high = self.high[-cut_size:]
+            self.low = self.low[-cut_size:]
+            self.close = self.close[-cut_size:]
+            self.size = self.size[-cut_size:]
+            self.buy_vol = self.buy_vol[-cut_size:]
+            self.sell_vol = self.sell_vol[-cut_size:]
 
     def get_ohlc(self):
-        return pd.DataFrame({'datetime':self.datetime, 'open':self.open, 'high':self.high, 'low':self.low, 'close':self.close, 'size':self.size, 'buy_vol':self.buy_vol, 'sell_vol':self.sell_vol})
+        with self.__lock_data:
+            return pd.DataFrame({'datetime':self.datetime, 'open':self.open, 'high':self.high, 'low':self.low, 'close':self.close, 'size':self.size, 'buy_vol':self.buy_vol, 'sell_vol':self.sell_vol})
 
     def get_index(self):
-        return {'divergence_scaled':self.divergence_scaled, 'vola_kyori_scaled':self.vola_kyori_scaled, 'vol_ma_divergence_scaled':self.vol_ma_divergence_scaled, 'buysell_vol_ratio_scaled':self.buysell_vol_ratio_scaled,
-        'rsi_scaled':self.rsi_scaled, 'uwahige_scaled':self.uwahige_scaled, 'shitahige_scaled':self.shitahige_scaled}
+        with self.__lock_data:
+            return {'divergence_scaled':self.divergence_scaled, 'vola_kyori_scaled':self.vola_kyori_scaled, 'vol_ma_divergence_scaled':self.vol_ma_divergence_scaled, 'buysell_vol_ratio_scaled':self.buysell_vol_ratio_scaled,
+            'rsi_scaled':self.rsi_scaled, 'uwahige_scaled':self.uwahige_scaled, 'shitahige_scaled':self.shitahige_scaled}
 
 '''
 最初にonemin_bybit.csvを最新のデータに更新する。
@@ -65,9 +69,10 @@ indexを計算する。
 '''
 class MarketData:
     @classmethod
-    def initialize_for_bot(cls, term_list):
+    def initialize_for_bot(cls, term_list, test_flg):
         print('started MarketData')
         cls.term_list = term_list
+        cls.test_flg = test_flg #True:test mode, False:production bot mode
         #update onemin_bybit.csv
         dmd = DownloadMarketData()
         dmd.download_all_targets_async(2017,1,2)
@@ -75,26 +80,28 @@ class MarketData:
         RestAPI.update_onemin_data()
         #最大のtermのindexの計算に必要なデータを確保するためのtarget from tを計算してデータを取得
         cls.md = cls.__read_from_csv('./Data/onemin_bybit.csv') #term_listから必要最小限のデータのみを読み込む機能付き
-        cls.ohlc_sim_flg = False #Trueの時にSimが最新のohlc / indexデータの取得する。
-        cls.ohlc_bot_flg = False #Trueの時にBotが最新のohlc / indexデータの取得する。
+        cls.__lock_ohlc_flg = threading.Lock()
+        cls.__ohlc_flg = False #Trueの時にBotが最新のohlc / indexデータの取得する。
         th = threading.Thread(target=cls.__ohlc_thread)
         th.start()
 
 
-    '''
-    SimとBotから毎分1回ずつアクセスがある。
-    sim_bot_flg = 0 or 1 (0:sim, 1:bot)
-    '''
     @classmethod
-    def get_latest_ohlc(cls, sim_bot_flg):
-        if sim_bot_flg==0:
-            cls.ohlc_sim_flg = False
-        elif sim_bot_flg==1:
-            cls.ohlc_bot_flg = False
-        else:
-            print('MarketData-get_latest_ohlc: Invalid sim_bot_flg !', sim_bot_flg)
-        return cls.md.get_ohlc()
+    def get_ohlc_flg(cls):
+        with cls.__lock_ohlc_flg:
+            return cls.__ohlc_flg
 
+    @classmethod
+    def get_ohlc(cls):
+        with cls.__lock_ohlc_flg:
+            cls.__ohlc_flg = False
+            return cls.md.get_ohlc()
+    
+    @classmethod
+    def get_index(cls):
+        with cls.__lock_ohlc_flg:
+            cls.__ohlc_flg = False
+            return cls.md.get_index()
 
     '''
     Botが動いている間、毎分ごとにohlcを更新してindexを計算する。
@@ -110,21 +117,12 @@ class MarketData:
                 #downloaded_df = RestAPI.get_ohlc(1, cls.md.timestamp[-1] - 60)
                 cls.__add_ohlc_data(downloaded_df)
                 print(cls.md.get_ohlc().iloc[-1:])
-                '''
-                print('divergence_scaled')
-                print(cls.md.divergence_scaled.iloc[-1:])
-                print('vola_kyori_scaled')
-                print(cls.md.vola_kyori_scaled.iloc[-1:])
-                print('vol_ma_divergence_scaled')
-                print(cls.md.vol_ma_divergence_scaled.iloc[-1:])
-                print('rsi_scaled')
-                print(cls.md.rsi_scaled.iloc[-1:])
-                print('uwahige_scaled')
-                print(cls.md.uwahige_scaled.iloc[-1:])
-                print('shitahige_scaled')
-                print(cls.md.shitahige_scaled.iloc[-1:])
-                '''
                 kijun_timestamp += 60
+                if cls.test_flg:
+                    print('*******************MarketData OHLCV*******************')
+                    print(cls.md.get_ohlc())
+                    print('*******************MarketData index*******************')
+                    print(cls.md.get_index())
             else:
                 time.sleep(1)
         print('stopped MarketData.ohlc_thread!')
@@ -163,8 +161,8 @@ class MarketData:
             cls.calc_shitahige()
             cls.calc_uwahige_scaled()
             cls.calc_shitahige_scaled()
-            cls.ohlc_sim_flg = True
-            cls.ohlc_bot_flg = True
+            with cls.__lock_ohlc_flg:
+                cls.__ohlc_flg = True
         else:
             print('No matched datetime found in downloaded ohlc data!')
             print(df_ohlc)
@@ -221,7 +219,7 @@ class MarketData:
     def calc_divergence_scaled(cls):
         with warnings.catch_warnings():
             warnings.filterwarnings('ignore', r'All-NaN (slice|axis) encountered')
-            df_divergence = pd.DataFrame(MarketData.ohlc.divergence)
+            df_divergence = pd.DataFrame(cls.md.divergence)
             min_max_scaler = MinMaxScaler()
             x_scaled = min_max_scaler.fit_transform(df_divergence.T)
             cls.md.divergence_scaled = pd.DataFrame(x_scaled).T
@@ -344,7 +342,7 @@ class MarketData:
     def calc_rsi_scaled(cls):
         with warnings.catch_warnings():
             warnings.filterwarnings('ignore', r'All-NaN (slice|axis) encountered')
-            df_rsi = pd.DataFrame(cls.ohmdlc.rsi)
+            df_rsi = pd.DataFrame(cls.md.rsi)
             min_max_scaler = MinMaxScaler()
             x_scaled = min_max_scaler.fit_transform(df_rsi.T)
             cls.md.rsi_scaled = pd.DataFrame(x_scaled).T

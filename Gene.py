@@ -5,18 +5,21 @@ from RandomGenerator import RandomGenerator
 
 
 class Gene:
-    def __init__(self, units, index):
-        self.weight_gene = [] #weight_gene[layer][output unit][input unit] -> [<inputs units id as key, double[num middle units-1]>, <middle units id as key, double[num middle units-2>, ..]
-        self.bias_gene = [] #bias_gene[layer][output unit]  ->  [num_unit[1], num_unit[2], .. num_unit[num_layers - 1]]
-        self.num_units = units
-        self.num_index = index
-        for i in range(1,len(units)): #for layers
-            weight = {}
-            for j in range(units[i]): #for units in a layer
-                weight[j] = RandomGenerator.getRandomArray(units[i - 1])
-            self.weight_gene.append(weight)
-            gene = RandomGenerator.getRandomArray(units[i])
-            self.bias_gene.append(gene)
+    def __init__(self, file_path, units, index):
+        if file_path == None:
+            self.weight_gene = [] #weight_gene[layer][output unit][input unit] -> [<inputs units id as key, double[num middle units-1]>, <middle units id as key, double[num middle units-2>, ..]
+            self.bias_gene = [] #bias_gene[layer][output unit]  ->  [num_unit[1], num_unit[2], .. num_unit[num_layers - 1]]
+            self.num_units = units
+            self.num_index = index
+            for i in range(1,len(units)): #for layers
+                weight = {}
+                for j in range(units[i]): #for units in a layer
+                    weight[j] = RandomGenerator.getRandomArray(units[i - 1])
+                self.weight_gene.append(weight)
+                gene = RandomGenerator.getRandomArray(units[i])
+                self.bias_gene.append(gene)
+        else:
+            self.readWeigth(file_path)
 
     
     def readWeigth(self, file_name):

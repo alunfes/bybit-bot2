@@ -58,6 +58,7 @@ class NN:
         res.append(otype)
         return res
 
+
     def getActivatedUnitLimitMarket2(self, output_vals, threshold):
         res = []
         fired_units = []

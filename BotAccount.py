@@ -2,6 +2,8 @@ import time
 import threading
 import datetime
 
+from numpy import place
+
 from SystemFlg import SystemFlg
 from PrivateWS import PrivateWS, PrivateWSData
 from MarketData import MarketData
@@ -9,335 +11,284 @@ from Trade import Trade
 from LineNotification import LineNotification
 
 '''
-約定処理：
-Orderが存在しているときは別のthreadを走らせそこで0.5sec毎にRestAPI経由で約定確認する。
---Limit Orderの場合--
-Partial Executedでもholdingは即時に反映させる。
-leaves_qtyの変化分を追加約定として処理
-cum_exec_feeの変化分を追加feeとして処理 (Δcum_exec_fee * btc price)
---Market Orderの場合--
-order_status = filledになった時点の情報で約定を処理する。
-
-Order: 
-新規OrderはBotから情報をもらうことで更新する。cancel / updateは全てRestAPIからの情報をもとに更新。
-
-Holding:
-約定処理をもとに自動で更新。
-
-Num Trade, Num_Win:
-Filled, Partially Filledの後にCancelledのときのみカウントすべき。
-同時にnum_winもカウントすることになるので、calc_plで対象の場合にのみカウントするようにする。
-'''
-
-'''
-・Botからのorder idを受けて、Tradeのget order info by idで確認し、約定処理等行う。
-・約定処理はpartial executedでもholding / orderを即時更新するが、最終的にorder_status=Filled / Cancelledになった時点で
+Order削除のタイミング：
+・leaves_qty=0となった時、order_status = Cancelledとなった時。get_orderで取得した情報を確認しないといけない？
+理屈上は、cancelはBotの指示により行われるので正常にキャンセル完了した段階でcancelled_orderを呼び出せばBotAccountで処理できる。
 
 
-NNInputData:
-実際のorder / holding / plなどを反映したBotAccountをNNInput用にtransformする。
+Fee計算：
+・約定更新の度にexec_feeを取得してorder_cum_exec_feeに記録。order削除するタイミングで反映。
+Pl計算：
+・holdingがありholding side != exec_dataのsideの時、exec priceを使って都度plを計算する。
 '''
 class BotAccount:
-    @classmethod
-    def initialize(cls):
-        #pws = PrivateWS()
-        cls.__initialize_params()
-        cls.__initialize_order_data()
-        cls.__initialize_holding_data()
-        cls.__initialize_performance_data()
-        cls.__initialize_trade_data()
-        #th = threading.Thread(target=cls.__account_thread)
-        #th.start()
+    def __init__(self, account_id) -> None:
+        self.account_id = account_id
+        self.__initialize_order()
+        self.__initialize_holding()
+        self.__initialize_performance()
+        self.__initialize_log()
 
+    def __initialize_order(self):
+        self.__lock_order_data = threading.Lock()
+        self.order_id = []
+        self.order_side = {}
+        self.order_price = {}
+        self.order_qty = {}
+        self.order_leaves_qty = {}
+        self.order_type = {}
+        self.order_dt= {}
+        self.order_status = {} #New, Partially Filled
+        self.order_cum_exec_fee = {}
+        self.order_checked_exec_id = {} #{order_id:[checked_exec_ids]}
 
-    @classmethod
-    def __initialize_params(cls):
-        cls.checl_exec_thread_sleep = 0.5
+    def __initialize_holding(self):
+        self.__lock_holding_data = threading.Lock()
+        self.holding_side = ''
+        self.holding_price = 0
+        self.holding_size = 0
+        self.holding_dt = ''
+        self.holding_period = 0
 
-    @classmethod
-    def __initialize_order_data(cls):
-        cls.__lock_order = threading.Lock()
-        cls.order_id = []
-        cls.order_side = {}
-        cls.order_price = {}
-        cls.order_size = {}
-        cls.order_leaves_qty = {}
-        cls.order_type = {} #Limit, Market
-        cls.order_dt = {}
-        cls.order_cum_exec_fee = {}
-        cls.order_status = {} #Filled, Cancelled, New, Created, PartiallyFilled
+    def __initialize_performance(self):
+        self.__lock_performance_data = threading.Lock()
+        self.total_pl = 0
+        self.total_pl_ratio = 0
+        self.unrealized_pl = 0
+        self.realized_pl = 0
+        self.total_fee = 0
+        self.num_trade = 0 #holding positionが変わったタイミングをカウント
+        self.num_win = 0
+        self.num_buy = 0
+        self.num_sell = 0
+        self.win_rate = 0
+        self.num_maker_order = 0 #現状正確な把握が難しい
 
-    @classmethod
-    def __initialize_holding_data(cls):
-        cls.__lock_holding = threading.Lock()
-        cls.holding_side = ''
-        cls.holding_size = 0
-        cls.holding_price = 0
-        cls.holding_dt = ''
-        cls.holding_period = 0
+    def __initialize_log(self):
+        self.__lock_log_data = threading.Lock()
+        self.__tmp_trade_log = []
+        self.trade_log = {}
+        self.total_pl_log = []
+        self.total_pl_ratio_log = []
+        self.unrealized_pl_log = []
+        self.realized_pl_log = []
+        self.total_fee_log = []
 
+    def __remove_order_data(self, oid):
+        with self.__lock_order_data:
+            self.order_id.remove(oid)
+            del self.order_checked_exec_id[oid]
+            del self.order_cum_exec_fee[oid]
+            del self.order_dt[oid]
+            del self.order_leaves_qty[oid]
+            del self.order_price[oid]
+            del self.order_qty[oid]
+            del self.order_status[oid]
+            del self.order_type[oid]
+            del self.order_side[oid]
 
-    @classmethod
-    def __initialize_performance_data(cls):
-        cls.__lock_performance = threading.Lock()
-        cls.total_pl = 0
-        cls.total_pl_list = []
-        cls.realized_pl = 0
-        cls.unrealized_pl = 0
-        cls.total_fee = 0
-        cls.num_trade = 0
-        cls.num_sell = 0
-        cls.num_buy = 0
-        cls.num_market_order = 0
-        cls.num_win = 0
-        cls.win_rate = 0
-        cls.sharp_ratio = 0
-
-
-    @classmethod
-    def __initialize_trade_data(cls):
-        cls.__lock_trade = threading.Lock()
-        cls.trade_log = {} #{i, [trade_log]}
-
-
-    @classmethod
-    def get_holding_data(cls):
-        with cls.__lock_holding:
-            return {'side':cls.holding_side, 'size':cls.holding_size, 'price':cls.holding_price, 'dt':cls.holding_dt, 'period':cls.holding_period}
-
-    
-    @classmethod
-    def get_holding_data_nn(cls):
-        with cls.lock_holding:
-            return {'side':cls.holding_side, 'size':1 if cls.holding_size > 0 else 0, 'price':cls.holding_price, 'period':cls.holding_period}
-
-
-    @classmethod
-    def __update_holding_data(cls, side, size, price, dt, period):
-        with cls.lock_holding:
-            cls.holding_side = side
-            cls.holding_size = size
-            cls.holding_price = price
-            cls.holding_dt = dt #ポジションの保有開始時刻（あくまで最初にholdした時刻でupdateしたときは更新しない）
-            cls.holding_period = period #holding_dtから経過分
-
-
-    @classmethod
-    def get_performance_data(cls):
-        with cls.lock_performance:
-            return {'total_pl':cls.total_pl, 'realized_pl':cls.realized_pl, 'unrealized_pl':cls.unrealized_pl, 'total_pl_list':cls.total_pl_list,
-            'num_trade':cls.num_trade, 'win_rate':cls.win_rate}
-
-    @classmethod
-    def get_performance_data_nn(cls, ohlc):
-        with cls.lock_performance:
-            if cls.holding_side != '':
-                pl =  ohlc['close'] - cls.holding_price if cls.holding_side == 'buy' else cls.holding_price - ohlc['close'] 
-                return {'unrealized_pl':pl}
-            else:
-                return {'unrealized_pl':0}
-
-    @classmethod
-    def add_order(cls, order_id, side, price, size, leaves_qty, cum_fee, otype):
-        with cls.__lock_order:
-            cls.order_id.append(order_id)
-            cls.order_side[order_id] = side
-            cls.order_price[order_id] = price
-            cls.order_size[order_id] = size
-            cls.order_leaves_qty[order_id] = leaves_qty
-            cls.order_type[order_id] = otype
-            cls.order_dt[order_id] = datetime.datetime.now()
-            cls.order_cum_exec_fee[order_id] = cum_fee
-            cls.order_status[order_id] = 'New'
-            if leaves_qty != size:
-                print('Bot.add_order: New entry order is already partially executed!')
-            if len(cls.order_id) > 1:
-                print('Bot.add_order: Multi order exists !', cls.order_side, ' ; ', cls.order_price, ' ; ', cls.order_leaves_qty)
-            th = threading.Thread(target=cls.__order_exec_check_thread)
-            th.start()
-
-
-    @classmethod
-    def __update_order(cls, order_id, price, leaves_qty, order_cum_exec_fee, status):
-        with cls.__lock_order:
-            cls.order_price[order_id] = price
-            cls.order_leaves_qty[order_id] = leaves_qty
-            cls.order_status[order_id] = status
-            cls.order_cum_exec_fee[order_id] = order_cum_exec_fee
-
-
-    @classmethod
-    def get_order_ids(cls):
-        with cls.__lock_order:
-            return cls.order_id
-
-
-    @classmethod
-    def get_order_data(cls, oid):
-        with cls.__lock_order:
-            if oid in cls.order_id:
-                return {'id':oid, 'side':cls.order_side[oid], 'price':cls.order_price[oid], 'size':cls.order_size[oid], 'leaves_qty':cls.order_leaves_qty[oid],
-                'type':cls.order_type[oid], 'dt':cls.order_dt[oid], 'cum_exec_fee':cls.order_cum_exec_fee, 'status':cls.order_status[oid]}
+    def get_order_data(self, oid):
+        with self.__lock_order_data:
+            if oid in self.order_id:
+                return {'id':oid, 'dt':self.order_dt[oid] ,'side':self.order_side[oid], 'price':self.order_price[oid], 'qty':self.order_qty[oid]
+                ,'leaves_qty':self.order_leaves_qty[oid], 'type':self.order_type[oid], 'status':self.order_status[oid], 'fee':self.order_cum_exec_fee[oid]}
             else:
                 print('BotAccount.get_order_data: Unknown order id !', oid)
+                LineNotification.send_message('BotAccount.get_order_data: Unknown order id ! - ' +oid)
+                return {'id':'', 'dt':'' ,'side':'', 'price':0, 'qty':0,'leaves_qty':0, 'type':'', 'status':'', 'fee':0}
 
-    '''
-    partial execでholding side == order sideの場合は、order無しとしてNNに入力する。
-    '''
-    @classmethod
-    def get_order_data_nn(cls):
-        with cls.__lock_order:
-            if cls.holding_side == cls.order_side[cls.order_id[-1]]:
-                return {'side':''}
+    def get_last_order_data(self):
+        with self.__lock_order_data:
+            if len(self.order_id) > 0:
+                oid = self.order_id[-1]
+                return {'id':oid, 'dt':self.order_dt[oid] ,'side':self.order_side[oid], 'price':self.order_price[oid], 'qty':self.order_qty[oid]
+                ,'leaves_qty':self.order_leaves_qty[oid], 'type':self.order_type[oid], 'status':self.order_status[oid], 'fee':self.order_cum_exec_fee[oid]}
             else:
-                return {'side':cls.order_side[cls.order_id[-1]]}
+                return {'id':'', 'dt':'' ,'side':'', 'price':0, 'qty':0,'leaves_qty':0, 'type':'', 'status':'', 'fee':0}
+                
+    def get_holding_data(self):
+        with self.__lock_holding_data:
+            return {'dt':self.holding_dt, 'side':self.holding_side, 'size':self.holding_size, 'price':self.holding_price, 'period':self.holding_period}
 
-    '''
-    Trade.get_order_byid()でorder_status='Cancelled'になっていたら、現在のleaves_qtyから変化があるかを確認。
-    必要に応じて約定処理を実施した後にcancelledとしてorder情報を削除。
-    *order_exec_check_threadでorder cancelledを捕捉しているので、そこからleaves_qtyの情報も取る。
-    '''
-    @classmethod
-    def cancel_order(cls, order_id, leaves_qty):
-        with cls.__lock_order:
-            if cls.order_leaves_qty[order_id] > leaves_qty: #約定があった場合
-                cls.__process_execution(order_id, cls.order_side[order_id], )
+    def get_performance_data(self):
+        with self.__lock_performance_data:
+            return {'total_pl':self.total_pl, 'total_pl_ratio':self.total_pl_ratio, 'unrealized_pl':self.unrealized_pl, 'total_fee':self.total_fee, 'num_trade':self.num_trade,
+            'num_win':self.num_win, 'num_buy':self.num_buy, 'num_sell':self.num_sell, 'win_rate':self.win_rate, 'num_maker_order':self.num_maker_order}
 
 
-    @classmethod
-    def __del_order(cls, order_id):
-        with cls.__lock_order:
-            if order_id in cls.order_id:
-                cls.order_id.remove(order_id)
-                del cls.order_side[order_id]
-                del cls.order_price[order_id]
-                del cls.order_size[order_id]
-                del cls.order_leaves_qty[order_id]
-                del cls.order_type[order_id]
-                del cls.order_dt[order_id]
-                del cls.order_cum_exec_fee[order_id]
-                del cls.order_status[order_id]
+    def entry_order(self, id, side, price, qty, type, message):
+        with self.__lock_order_data:
+            self.order_id.append(id)
+            self.order_side[id] = str(side).lower()
+            self.order_price[id] = round(float(price),1) if str(type).lower() == 'limit' else 0 #market orderのAPI response priceは板の上下限値になる
+            self.order_qty[id] = int(qty)
+            self.order_checked_exec_id[id] = []
+            self.order_cum_exec_fee[id] = 0
+            self.order_type[id] = str(type).lower()
+            self.order_dt[id] = datetime.datetime.now()
+            self.order_leaves_qty[id] = int(qty)
+            self.order_status[id] = 'New'
+            print('#', self.account_id, ' - ', message, type, side, ' @', price, ' x', qty)
+            LineNotification.send_message('#' + str(self.account_id) + ' - ' + message+ type + ' ' + side+' @'+ str(price)+ ' x' + str(qty))
+            self.__tmp_trade_log.append('#' + str(self.account_id) + ' - ' + message+ side+' @'+ str(price)+ ' x' + str(qty))
+
+    def cancel_order(self, oid):
+        self.__remove_order_data(oid)
+        self.__tmp_trade_log.append('#'+ str(self.account_id) + ' - cancelled order.')
+        print('#',self.account_id, ' - cancelled order.')
+        LineNotification.send_message('#'+ str(self.account_id) + ' - cancelled order.')
+
+    def update_order_price(self, oid, new_price):
+        with self.__lock_order_data:
+            if oid in self.order_id:
+                self.__tmp_trade_log.append('#' + str(self.account_id) + ' - updated order price from ' + str(self.order_price[oid]) + ' to ' + str(new_price))
+                print('#',self.account_id, ' - updated order price from', self.order_price[oid], ' to ', new_price)
+                LineNotification.send_message('#' + str(self.account_id) + ' - updated order price from ' + str(self.order_price[oid]) + ' to ' + str(new_price))
+                self.order_price[oid] = round(float(new_price),1)
             else:
-                print('BotAccount-del_order: Invalid order id !', order_id)
+                self.__tmp_trade_log.append('#' + str(self.account_id) + ' - updated order price but order_id is not existed in BotAccount !')
+                print('#',self.account_id, ' - updated order price but order_id is not existed in BotAccount !')
+                LineNotification.send_message('#' + str(self.account_id) + ' - updated order price but order_id is not existed in BotAccount !')
 
-
-    '''
-    Should called only by Bot when ohlc was updated
-    holding_periodは60sec未満だと0となるがsimではNNにholding side !=''のときはholding period=0とはならない？
-    '''
-    @classmethod
-    def ohlc_update(cls, ohlc): #ohlc{'dt', 'open', 'high', 'low', 'close', 'divergence_scaled'}
-        period = int((datetime.datetime.now().timestamp() - cls.hodlding_dt.timestamp()) / 60.0)
-        cls.__update_holding_data(cls.holding_side, cls.holding_size, cls.holding_price, cls.holding_dt, period)
-        cls.__calc_total_pl(ohlc)
-
-
-    @classmethod
-    def __calc_total_pl(cls, ohlc):
-        with cls.lock_performance:
-            if cls.holding_side != '':
-                cls.unrealized_pl = (ohlc['close'] - self.holding_price) * self.holding_size if self.holding_side == 'buy' else (self.holding_price - ohlc['close']) * self.holding_size
+    def update_order_amount(self, oid, new_amount):
+        with self.__lock_order_data:
+            if oid in self.order_id:
+                self.__tmp_trade_log.append('#' + str(self.account_id) + ' - updated order amount from ' + str(self.order_qty[oid]) + ' to ' + str(new_amount))
+                print('#',self.account_id, ' - updated order amount from', self.order_qty[oid], ' to ', new_amount)
+                LineNotification.send_message('#' + str(self.account_id) + ' - updated order amount from ' + str(self.order_qty[oid]) + ' to ' + str(new_amount))
+                self.order_leaves_qty[oid] += int(new_amount) - int(self.order_qty[oid])
+                self.order_qty[oid] = int(new_amount)
             else:
-                self.unrealized_pl = 0
-            cls.total_pl = cls.unrealized_pl + cls.realized_pl - cls.total_fee
-            if cls.num_trade > 0:
-                cls.win_rate = round(float(cls.num_win) / float(cls.num_trade), 4)
-
+                self.__tmp_trade_log.append('#' + str(self.account_id) + ' - updated order price but order_id is not existed in BotAccount !')
+                print('#',self.account_id, ' - updated order price but order_id is not existed in BotAccount !')
+                LineNotification.send_message('#' + str(self.account_id) + ' - updated order price but order_id is not existed in BotAccount !')
 
     '''
-    order entryが確認されたらthreadとして呼び出される。
-    orderがfully exexuted or cancelledされるまで約定状況を確認し続ける。
+    new entry, additional entry, opposite entryを識別して適切にholding dataを更新
     '''
-    @classmethod
-    def __order_exec_check_thread(cls):
-        while len(cls.order_id) > 0:
-            for oid in cls.order_id:
-                order = Trade.get_order_byid(oid)
-                if 'order_id' in order:
-                    if order['leaves_qty'] < cls.order_leaves_qty[oid]:
-                        exec_price = order['price'] if order['order_type'] == 'Limit' else order['average']
-                        cls.__process_execution(oid, order['qty'], order['side'], order['leaves_qty'], order['cum_exec_qty'], order['order_type'], exec_price, order['cum_exec_fee'], order['order_status'])
-                else:
-                    print('BotAccount-__order_exec_check_thread: Invalid order data!', order)
-                    LineNotification.send_message('BotAccount-__order_exec_check_thread: Invalid order data!')
-            time.sleep(cls.checl_exec_thread_sleep)
+    def __update_holding_data_execution(self, side, executed_price, executed_qty, pl):
+        with self.__lock_holding_data:
+            if self.holding_side == '': #new entry
+                self.holding_side = str(side).lower()
+                self.holding_price = executed_price
+                self.holding_period = 0
+                self.holding_size = int(executed_qty)
+                self.__num_trade_counter(side, pl)
+            elif self.holding_side == side: #additional entry
+                self.holding_price = (self.holding_price * self.holding_size + executed_price * executed_qty) / (self.holding_size + executed_qty)
+                self.holding_size += int(executed_qty)
+            else: #exit execution
+                if self.holding_size == executed_qty: #exited all position
+                    self.__num_trade_counter(side, pl)
+                    self.__initialize_holding()
+                else: #exit and opposite entry
+                    self.holding_side = str(side).lower()
+                    self.holding_size = int(executed_qty) - self.holding_size
+                    self.holding_price = executed_price
+                    self.holding_dt = datetime.datetime.now()
+                    self.holding_period =0
+                    self.__num_trade_counter(side, pl)
 
-
-    '''
-    --Limit Orderの場合--
-    Partial Executedでもholdingは即時に反映させる。
-    leaves_qtyの変化分を追加約定として処理
-    cum_exec_feeの変化分を追加feeとして処理 (Δcum_exec_fee * btc price)
-    --Market Orderの場合--
-    order_status = filledになった時点の情報で約定を処理する。
-    '''
-    @classmethod
-    def __process_execution(cls, oid, oside, leaves_qty, cum_exec_qty, otype, exec_price, cum_exec_fee, order_status):
-        od = cls.get_order_data()
-        executed_qty = od['leavest_qty'] - leaves_qty
-        executed_fee = cum_exec_fee - od['cum_exec_fee']
-        flg_count = True if (order_status == 'Filled' or order_status == 'Cancelled') and executed_qty > 0 else False
-        fee = cls.__calc_fee(executed_fee, exec_price, otype, order_status)
-        pl = cls.__calc_realized_pl(cum_exec_qty, exec_price, flg_count)
-        if otype == 'Market':
-            cls.num_market_order += 1
-            print('Bot.__process_execution: Order was executed as a market order !')
-            LineNotification.send_message('Bot.__process_execution: Order was executed as a market order !')
-        #update holding data
-        if cls.holding_side == '':
-            cls.__update_holding_data(side, cum_exec_qty, exec_price, datetime.datetime.now(), 0)    
-            print('Bot: New Entry: ', side + ' @', exec_price, ' x ', cls.order_size[k])
-        elif cls.holding_side == cls.order_side[oid]: #Additional Entry (Remaining parts of partial execution)
-            ave_price = round(((cls.holding_price * cls.holding_size) + (exec_price * cum_exec_qty)) / (cum_exec_qty + cls.holding_size))  # averaged holding price
-            cls.__update_holding_data(side, cls.holding_size + cum_exec_qty, ave_price, cls.holding_dt, cls.holding_period)
-            print('Bot: Additional Entry: ', side + ' @', exec_price, ' x ', cls.order_size[k])
-        elif cls.holding_size > cum_exec_qty: #Opposite Entry (h>o)
-            cls.__update_holding_data(cls.holding_side, cls.holding_size - cum_exec_qty, cls.holding_price, cls.holding_dt, cls.holding_period)
-            print('Bot: Opposite Entry: ', side + ' @', exec_price, ' x ', cls.order_size[k])
-        elif cls.holding_size == cls.order_size[k]: #All Exit
-            cls.__initialize_holding_data()
-            print('Bot: All Exit: ', side + ' @', exec_price, ' x ', cls.order_size[k])
-        elif cls.holding_size < cls.order_size[k]: #Opposite Entry (h<o)
-            cls.__update_holding_data(side, cum_exec_qty - cls.holding_size, exec_price, datetime.datetime.now(), 0)
-            print('Bot: Opposite Entry: ', side + ' @', exec_price, ' x ', cls.order_size[k])
+    def __num_trade_counter(self, side, pl):
+        self.num_trade += 1
+        self.num_win += 1 if pl >0 else 0
+        if side == 'buy':
+            self.num_buy += 1
         else:
-            print('BotAccount.__process_execution: Undefined Situation !')
-            LineNotification.send_message('BotAccount.__process_execution: Undefined Situation !')
-        #update order data
-        if order_status == 'Filled' or order_status == 'Cancelled':
-            cls.__del_order(oid)
-            print('Bot: Order ', order_status, ' - ', side, ' @ ', exec_price, ' x ', )
-        else: #New, Created, PartiallyFilled
-            print('BotAccount.__process_execution: Partially Filled. Order ID=', oid, ', side=', side, 'exec qty=', cls.order_size[oid] - leaves_qty, ' @ ', exec_price)
-            cls.__update_order(oid, cls.order_price[oid], leaves_qty, 'PartiallyFilled')
+            self.num_sell += 1
+
+    '''
+
+    '''
+    def __update_order_data_execution(self, oid, executed_qty, leaves_qty, executed_fee, execution_id):
+        if self.order_leaves_qty[oid] < executed_qty: #Partially Executed
+            with self.__lock_order_data:
+                self.order_leaves_qty[oid] = int(leaves_qty)
+                self.order_cum_exec_fee[oid] += executed_fee
+                self.order_checked_exec_id[oid].append(execution_id)
+                self.order_status[oid] = 'Partially Filled'
+        elif self.order_leaves_qty[oid] == executed_qty: #Fully executed
+            self.__remove_order_data(oid)
+        else:
+            print('BotAccount-', self.account_id, ': Larger qty was executed !')
+            LineNotification.send_message('BotAccount-'+ str(self.account_id) +  ': Larger qty was executed !')
+            self.__remove_order_data(oid)
+                
+    
+    def __add_log(self, i):
+        with self.__lock_log_data:
+            self.trade_log[i] = self.__tmp_trade_log
+            self.total_pl_log.append(self.total_pl)
+            self.total_pl_ratio_log.append(self.total_pl_ratio)
+            self.unrealized_pl_log.append(self.unrealized_pl)
+            self.realized_pl_log.append(self.realized_pl)
+            self.total_fee_log.append(self.total_fee)
+            self.__tmp_trade_log = []
+
+    def move_to_next(self, dt, i, ohlc_df, order_size):
+        if self.holding_side != '':
+            self.unrealized_pl = self.holding_size * (self.holding_price - ohlc_df['close'].iloc[-1]) / self.holding_price if self.holding_side == 'buy' else self.holding_size * (self.holding_price - ohlc_df['close'].iloc[-1]) / self.holding_price
+        else:
+            self.unrealized_pl = 0
+        self.total_pl = self.unrealized_pl + self.realized_pl - self.total_fee
+        self.total_pl_ratio = round(self.total_pl / order_size, 6)
+        if self.num_trade > 0:
+            self.win_rate = round(self.num_win / self.num_trade, 4)
+        else:
+            self.win_rate = 0
+        self.num_maker_order = 0
+        self.holding_period += 1
+        self.__add_log(i)
+
+    '''
+    botから与えられるTrade.get_executions()で取得できる直近の約定データにorder idが含まれており、未処理のexec_idか否かを確認する。
+    '''
+    def check_execution(self, exec_list):
+        for d in exec_list:
+            if len(self.order_id) == 0:
+                break
+            if d['info']['order_id'] in self.order_id: #該当するorder idを保有中
+                if d['info']['exec_id'] not in self.order_checked_exec_id[d['info']['order_id']]: #約定idを未確認の時
+                    self.__process_execution(d)
 
 
     '''
-    limitのときは約定進捗の度に計算、marketのときはFilledのときのみ計算。
+    約定の度に都度fee, pl, order, holdingを更新。
+
+    前提条件：
+    ・未確認のexec_idが確認済でorder_idを保有中
     '''
-    @classmethod
-    def __calc_fee(cls, exec_fee, exec_price, otype, ostatus):
-        fee = 0
-        if otype == 'limit' or (otype == 'market' and ostatus == 'Filled'):
-            fee -= round(exec_fee * exec_price, 6)
-            cls.total_fee -= round(exec_fee * exec_price, 6)
+    def __process_execution(self, exec_dict):
+        oid = exec_dict['info']['order_id']
+        if int(exec_dict['info']['leaves_qty']) != self.order_leaves_qty[oid]:
+            od = self.get_order_data(oid)
+            executed_qty = int(od['leaves_qty']) - int(exec_dict['info']['leaves_qty'])
+            executed_fee = float(exec_dict['info']['exec_fee']) * float(exec_dict['info']['exec_price'])
+            fee = self.__calc_fee(float(exec_dict['info']['exec_fee']), float(exec_dict['info']['exec_price']))
+            pl = self.__calc_realized_pl(exec_dict['info']['side'], float(exec_dict['info']['exec_price']), int(exec_dict['info']['exec_qty']))
+            self.__update_order_data_execution(oid, int(exec_dict['info']['exec_qty']), int(exec_dict['info']['leaves_qty']), fee, exec_dict['info']['exec_id'])
+            self.__update_holding_data_execution(exec_dict['info']['side'], float(exec_dict['info']['exec_price']), int(exec_dict['info']['exec_qty']), pl)
+            print('BotAccount-', self.account_id, ': Executed ', exec_dict['type'], '-', exec_dict['info']['side'], ' order ', '@', float(exec_dict['info']['exec_price']), ' x', int(exec_dict['info']['exec_qty']), ' pl=', pl)
+            LineNotification.send_message('BotAccount-' + str(self.account_id) + ': Executed ' + exec_dict['type']+ '-'+ exec_dict['info']['side']+ ' order '+ '@'+ str(float(exec_dict['info']['exec_price']))+ ' x'+ str(int(exec_dict['info']['exec_qty']))+ ' pl='+ str(pl))
+        else:
+            print('BotAccount-',self.account_id, ':leaves_qty is not matched !')
+            print('execution data:')
+            print(exec_dict)
+            print('order data:')
+            print(self.get_order_data(oid))
+            LineNotification.send_message('BotAccount-' + str(self.account_id) + ':leaves_qty is not matched !')
+
+    def __calc_fee(self, exec_fee, exec_price):
+        fee = exec_fee * exec_price
+        with self.__lock_performance_data:
+            self.total_fee += fee
         return fee
-        
 
-
-    '''
-    pl = 価格変化率 * 売買額
-    -> pl = (exec_price - holding_price) / holding_price * exec_qty    (buyのとき)
-    Num Trade, Num_Win:
-    Filled, Partially Filledの後にCancelledのときのみカウントすべき。
-    同時にnum_winもカウントすることになるので、calc_plで対象の場合にのみカウントするようにする。
-    '''
-    @classmethod
-    def __calc_realized_pl(cls, exec_qty, exec_price, flg_count):
-        pl = (exec_price - cls.holding_price) / cls.holding_price * exec_qty if cls.holding_side == 'buy' else (cls.holding_price - exec_price) / cls.holding_price * exec_qty
-        cls.realized_pl += round(pl,6)
-        if flg_count:
-            cls.num_trade += 1
-            if pl > 0:
-                cls.num_win += 1
-        return round(pl,6)
+    def __calc_realized_pl(self, exec_side, exec_price, exec_qty):
+        if self.holding_side != '' and self.holding_side != exec_side:
+            pl = exec_qty *  (exec_price - self.holding.price if self.holding_side == 'buy' else self.holding.price - exec_price)
+            with self.__lock_performance_data:
+                self.realized_pl += pl
+            return pl
+        else:
+            return 0

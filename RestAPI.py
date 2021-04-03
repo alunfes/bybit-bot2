@@ -4,6 +4,7 @@ import time
 import datetime
 import pandas as pd
 import threading
+import bybit
 from SystemFlg import SystemFlg
 
 
@@ -168,6 +169,18 @@ class RestAPI:
         return df
 
 
+    @classmethod
+    def get_privatge_trading_recoreds(cls):
+        url = 'https://api.bybit.com/v2/private/execution/list'
+        params = {
+            'symbol': 'BTCUSD',
+            'order':'desc'
+        }
+        df_list = []
+        res = requests.get(url, params=params)
+        jdata = res.json()
+        df = pd.DataFrame(jdata['result'])
+        return df
 
     '''
     onemin_bybit.csvの最新の日付以降のデータをtrading dataをAPI経由で取得してohlcv + buy/sell volに変換して、onemin_bybit.csvに追記する。
@@ -321,9 +334,8 @@ class RestAPI:
 
     @classmethod
     def test(cls):
-        df = cls.get_ohlcv_update(datetime.datetime.now() + datetime.timedelta(minutes=-10))
-        print('dwonloaded df')
-        print(df.iloc[0:])
+        df = cls.get_privatge_trading_recoreds()
+        print(df)
 
 if __name__ == '__main__':
     RestAPI.test()
